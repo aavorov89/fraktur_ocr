@@ -9,15 +9,16 @@ class TranslationJob < ApplicationJob
   def perform(ocr_request_id)
     ocr_request = OcrRequest.find(ocr_request_id)
 
-    # Skip if no text to translate
-    return if ocr_request.recognized_text.blank?
+    # Use corrected_text if available, fall back to recognized_text
+    text_to_translate = ocr_request.corrected_text.presence || ocr_request.recognized_text
+    return if text_to_translate.blank?
 
     api_key = Rails.application.credentials.dig(:deepl, :api_key)
     api_host = Rails.application.credentials.dig(:deepl, :api_host)
 
     raise "DeepL API credentials not configured. Run: rails credentials:edit" if api_key.blank? || api_host.blank?
 
-    response = send_to_deepl(api_key, api_host, ocr_request.recognized_text, ocr_request.target_language)
+    response = send_to_deepl(api_key, api_host, text_to_translate, ocr_request.target_language)
 
     if response[:success]
       ocr_request.update!(translated_text: response[:text], translation_error: nil)

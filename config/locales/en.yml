@@ -38,6 +38,8 @@ en:
     recognizing: "Recognizing Fraktur text…"
     failed: "OCR failed. Try again."
     copy_text: "Copy text"
+    correcting: "Correcting OCR errors…"
+    correction_failed: "Text correction failed — showing raw OCR"
 
   translation:
     will_appear: "Translation will appear here once text is recognized"

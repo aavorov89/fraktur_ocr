@@ -25,7 +25,7 @@ class OcrJob < ApplicationJob
         status: :completed,
         recognized_text: response[:text]
       )
-      TranslationJob.perform_later(ocr_request.id)
+      TextCorrectionJob.perform_later(ocr_request.id)
     else
       ocr_request.update!(
         status: :failed,
@@ -70,12 +70,14 @@ class OcrJob < ApplicationJob
             {
               type: "text",
               text: <<~PROMPT
-                This is a scan of a German book printed in Fraktur (German Gothic) typeface.
-                Please perform OCR on this image:
-                1. Transcribe all German text you can see, converting from Fraktur to modern Latin script.
-                2. Clean up the text: remove hyphenation at line breaks, join split words, fix obvious OCR artifacts.
-                3. Keep the original German text, paragraphs, and punctuation intact.
-                4. Output ONLY the clean German text, nothing else — no commentary, no labels, no markdown.
+                You are tasked with recognizing and transcribing text from an 18th-century German book printed in Fraktur (German Gothic) typeface.
+
+                1. Carefully examine the image and transcribe all visible German text, converting Fraktur to modern Latin script.
+                2. Preserve the original text exactly as it appears — including line breaks, hyphenation, punctuation, and any archaic spellings.
+                3. Do NOT clean up, modernize, or correct the text in any way. Transcribe faithfully.
+                4. If you encounter illegible or uncertain characters, represent them with [?].
+                5. Do not describe images, decorative elements, or add any commentary.
+                6. Output ONLY the raw transcription, nothing else.
               PROMPT
             }
           ]

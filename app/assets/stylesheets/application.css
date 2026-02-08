@@ -445,6 +445,44 @@ a {
   color: var(--text);
 }
 
+/* Correction status indicators */
+.ocr-correction-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f0f9ff;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #0369a1;
+}
+
+.ocr-correction-warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fef3c7;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.ocr-text-dim {
+  opacity: 0.6;
+}
+
+.ocr-spinner-small {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #bfdbfe;
+  border-top-color: #0369a1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 
 /* --- Translation Panel --- */
 .translation-state {

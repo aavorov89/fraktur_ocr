@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_08_170425) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_08_182059) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -46,6 +46,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_08_170425) do
   end
 
   create_table "ocr_requests", force: :cascade do |t|
+    t.text "corrected_text"
+    t.text "correction_error"
     t.datetime "created_at", null: false
     t.text "crop_data", null: false
     t.integer "document_id", null: false
