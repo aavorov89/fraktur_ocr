@@ -4,7 +4,7 @@ import * as Turbo from "@hotwired/turbo-rails"
 
 // Set pdf.js worker URL
 pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.9.155/build/pdf.worker.min.mjs"
+  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.0.375/build/pdf.worker.min.mjs"
 
 export default class extends Controller {
   static targets = [
