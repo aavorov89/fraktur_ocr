@@ -1,0 +1,24 @@
+Started GET "/" for 127.0.0.1 at 2026-02-08 14:37:13 +0100
+  [1m[35m (4.2ms)[0m  [1m[35mCREATE TABLE "schema_migrations" ("version" varchar NOT NULL PRIMARY KEY) /*application='FrakturOcr'*/[0m
+  [1m[35m (0.2ms)[0m  [1m[35mCREATE TABLE "ar_internal_metadata" ("key" varchar NOT NULL PRIMARY KEY, "value" varchar, "created_at" datetime(6) NOT NULL, "updated_at" datetime(6) NOT NULL) /*application='FrakturOcr'*/[0m
+  [1m[36mActiveRecord::SchemaMigration Load (0.2ms)[0m  [1m[34mSELECT "schema_migrations"."version" FROM "schema_migrations" ORDER BY "schema_migrations"."version" ASC /*application='FrakturOcr'*/[0m
+Processing by Rails::WelcomeController#index as HTML
+  Rendering /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb
+  Rendered /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb (Duration: 0.6ms | GC: 0.0ms)
+Completed 200 OK in 24ms (Views: 6.1ms | ActiveRecord: 0.0ms (0 queries, 0 cached) | GC: 0.6ms)
+
+
+Started GET "/" for 127.0.0.1 at 2026-02-08 14:37:16 +0100
+Processing by Rails::WelcomeController#index as HTML
+  Rendering /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb
+  Rendered /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb (Duration: 0.1ms | GC: 0.0ms)
+Completed 200 OK in 1ms (Views: 0.8ms | ActiveRecord: 0.0ms (0 queries, 0 cached) | GC: 0.3ms)
+
+
+Started GET "/" for 127.0.0.1 at 2026-02-08 14:37:45 +0100
+Processing by Rails::WelcomeController#index as HTML
+  Rendering /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb
+  Rendered /home/alex/.rvm/gems/ruby-3.2.2@fraktur_ocr/gems/railties-8.1.2/lib/rails/templates/rails/welcome/index.html.erb (Duration: 0.1ms | GC: 0.0ms)
+Completed 200 OK in 1ms (Views: 0.5ms | ActiveRecord: 0.0ms (0 queries, 0 cached) | GC: 0.0ms)
+
+
