@@ -13,6 +13,10 @@ Rails.application.routes.draw do
   root "documents#new"
 
   resources :documents, only: [:new, :create, :show] do
-    resources :ocr_requests, only: [:create], module: :documents
+    resources :ocr_requests, only: [:create], module: :documents do
+      member do
+        patch :update_language
+      end
+    end
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_08_162512) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_08_164855) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -53,6 +53,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_08_162512) do
     t.integer "page_number", null: false
     t.text "recognized_text"
     t.integer "status", default: 0, null: false
+    t.string "target_language", default: "RU"
     t.text "translated_text"
     t.text "translation_error"
     t.datetime "updated_at", null: false

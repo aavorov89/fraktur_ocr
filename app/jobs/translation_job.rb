@@ -17,10 +17,10 @@ class TranslationJob < ApplicationJob
 
     raise "DeepL API credentials not configured. Run: rails credentials:edit" if api_key.blank? || api_host.blank?
 
-    response = send_to_deepl(api_key, api_host, ocr_request.recognized_text)
+    response = send_to_deepl(api_key, api_host, ocr_request.recognized_text, ocr_request.target_language)
 
     if response[:success]
-      ocr_request.update!(translated_text: response[:text])
+      ocr_request.update!(translated_text: response[:text], translation_error: nil)
     else
       ocr_request.update!(translation_error: response[:error])
     end
@@ -32,7 +32,7 @@ class TranslationJob < ApplicationJob
 
   private
 
-  def send_to_deepl(api_key, api_host, text)
+  def send_to_deepl(api_key, api_host, text, target_lang)
     uri = URI("#{api_host}/v2/translate")
 
     http = Net::HTTP.new(uri.host, uri.port)
@@ -46,7 +46,7 @@ class TranslationJob < ApplicationJob
     request.body = {
       text: [text],
       source_lang: "DE",
-      target_lang: "EN"
+      target_lang: target_lang
     }.to_json
 
     response = http.request(request)

@@ -14,6 +14,19 @@
   </div>
 
 <% elsif ocr_request.completed? %>
+  <div class="language-selector-wrapper"
+       data-controller="language-selector"
+       data-language-selector-url-value="<%= update_language_document_ocr_request_path(ocr_request.document_id, ocr_request.id) %>">
+    <label for="target-language" class="language-label">Translate to:</label>
+    <select id="target-language"
+            class="language-select"
+            data-action="change->language-selector#change">
+      <option value="RU" <%= 'selected' if ocr_request.target_language == 'RU' %>>Russian</option>
+      <option value="CS" <%= 'selected' if ocr_request.target_language == 'CS' %>>Czech</option>
+      <option value="EN" <%= 'selected' if ocr_request.target_language == 'EN' %>>English</option>
+    </select>
+  </div>
+
   <% if ocr_request.translated_text.present? %>
     <div class="ocr-content">
       <div class="ocr-text"><%= ocr_request.translated_text %></div>

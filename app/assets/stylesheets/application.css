@@ -468,3 +468,44 @@ a {
   color: var(--text-muted);
   line-height: 1.6;
 }
+
+
+/* --- Language Selector --- */
+.language-selector-wrapper {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.language-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.language-select {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  outline: none;
+}
+
+.language-select:hover {
+  background: var(--bg-hover);
+  border-color: var(--text-muted);
+}
+
+.language-select:focus {
+  border-color: var(--accent);
+}
