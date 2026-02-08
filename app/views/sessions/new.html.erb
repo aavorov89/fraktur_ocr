@@ -1,8 +1,8 @@
 <div class="login-container">
   <div class="login-card">
     <div class="login-header">
-      <h1>Fraktur Reader</h1>
-      <p class="login-subtitle">Gothic German OCR</p>
+      <h1><%= t('login.title') %></h1>
+      <p class="login-subtitle"><%= t('login.subtitle') %></p>
     </div>
 
     <% if flash[:alert] %>
@@ -13,16 +13,16 @@
 
     <%= form_with url: login_path, method: :post, class: "login-form" do |f| %>
       <div class="form-group">
-        <label for="access_key">Access Key</label>
+        <label for="access_key"><%= t('login.access_key_label') %></label>
         <%= text_field_tag :access_key, "",
           class: "form-control",
-          placeholder: "Enter your access key",
+          placeholder: t('login.access_key_placeholder'),
           autofocus: true,
           autocomplete: "off" %>
       </div>
 
       <div class="form-actions">
-        <%= submit_tag "Access Application", class: "btn-primary" %>
+        <%= submit_tag t('login.submit'), class: "btn-primary" %>
       </div>
     <% end %>
   </div>

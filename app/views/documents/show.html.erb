@@ -5,7 +5,7 @@
   <%# === LEFT PANEL: PDF Viewer === %>
   <div class="panel panel-pdf">
     <div class="panel-label">
-      Source PDF
+      <%= t('documents.panels.source_pdf') %>
       <span class="panel-label-detail"><%= @document.name %></span>
     </div>
     <div class="pdf-viewer"
@@ -46,7 +46,7 @@
             <canvas data-pdf-viewer-target="overlayCanvas" class="overlay-canvas"
                     data-action="mousedown->pdf-viewer#startDraw mousemove->pdf-viewer#draw mouseup->pdf-viewer#endDraw mouseleave->pdf-viewer#endDraw"></canvas>
             <div class="draw-hint" data-pdf-viewer-target="drawHint">
-              Click and drag to select text
+              <%= t('documents.show.draw_hint') %>
             </div>
           </div>
         </div>
@@ -58,7 +58,7 @@
 
   <%# === MIDDLE PANEL: OCR Result === %>
   <div class="panel panel-ocr">
-    <div class="panel-label">Recognized Text</div>
+    <div class="panel-label"><%= t('documents.panels.recognized_text') %></div>
     <div id="ocr_panel">
       <%= render "documents/ocr_panel", ocr_request: @ocr_request %>
     </div>
@@ -68,7 +68,7 @@
 
   <%# === RIGHT PANEL: Translation === %>
   <div class="panel panel-translation">
-    <div class="panel-label">Translation</div>
+    <div class="panel-label"><%= t('documents.panels.translation') %></div>
     <div id="translation_panel">
       <%= render "documents/translation_panel", ocr_request: @ocr_request %>
     </div>

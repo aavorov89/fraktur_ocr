@@ -1,0 +1,53 @@
+ru:
+  app:
+    name: "Fraktur Reader"
+    subtitle: "Распознавание готического немецкого шрифта"
+
+  header:
+    logout: "Выйти"
+
+  login:
+    title: "Fraktur Reader"
+    subtitle: "Распознавание готического немецкого шрифта"
+    access_key_label: "Ключ доступа"
+    access_key_placeholder: "Введите ваш ключ доступа"
+    submit: "Войти в приложение"
+    invalid_key: "Неверный ключ доступа"
+    welcome: "Добро пожаловать, %{name}!"
+    logged_out: "Вы вышли из системы"
+
+  documents:
+    new:
+      upload_text: "Перетащите PDF или нажмите, чтобы загрузить"
+      upload_hint: "Сканы книг на немецком готическом шрифте / Fraktur"
+      upload_button: "Загрузить"
+
+    show:
+      source_pdf: "Исходный PDF"
+      page_info: "– / –"
+      load_different_pdf: "Загрузить другой PDF"
+      draw_hint: "Нажмите и перетащите, чтобы выделить текст"
+
+    panels:
+      source_pdf: "Исходный PDF"
+      recognized_text: "Распознанный текст"
+      translation: "Перевод"
+
+  ocr:
+    select_region: "Выделите область на PDF для распознавания текста"
+    recognizing: "Распознавание текста Fraktur…"
+    failed: "Ошибка распознавания. Попробуйте еще раз."
+    copy_text: "Скопировать текст"
+
+  translation:
+    will_appear: "Перевод появится здесь после распознавания текста"
+    waiting: "Ожидание распознавания текста…"
+    ocr_failed: "Ошибка распознавания — нечего переводить"
+    translate_to: "Перевести на:"
+    translating: "Перевод с помощью DeepL…"
+    copy_translation: "Скопировать перевод"
+
+    languages:
+      russian: "Русский"
+      czech: "Чешский"
+      english: "Английский"
