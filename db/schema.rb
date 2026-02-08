@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_08_134849) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_08_134949) do
   create_table "active_storage_attachments", force: :cascade do |t|
     t.bigint "blob_id", null: false
     t.datetime "created_at", null: false
@@ -45,6 +45,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_08_134849) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "ocr_requests", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.text "crop_data", null: false
+    t.integer "document_id", null: false
+    t.text "error_message"
+    t.integer "page_number", null: false
+    t.text "recognized_text"
+    t.integer "status", default: 0, null: false
+    t.datetime "updated_at", null: false
+    t.index ["document_id", "created_at"], name: "index_ocr_requests_on_document_id_and_created_at"
+    t.index ["document_id"], name: "index_ocr_requests_on_document_id"
+  end
+
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
+  add_foreign_key "ocr_requests", "documents"
 end
