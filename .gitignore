@@ -64,6 +64,4 @@ yarn-debug.log*
 Thumbs.db
 
 # Project specific - source extraction files
-gothic-ocr-rails-extracted/
-gothic-ocr-rails.tar.gz
 *.tar.gz
