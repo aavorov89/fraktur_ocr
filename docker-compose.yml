@@ -14,26 +14,51 @@ services:
       - RAILS_ENV=production
       - RAILS_LOG_TO_STDOUT=true
       - RAILS_SERVE_STATIC_FILES=true
-      # IMPORTANT: Set this to your actual master key value
       - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
       # Optional: Set custom hostname/port
       # - RAILS_HOSTNAME=your-domain.com
       # - PORT=80
     volumes:
-      # Persist SQLite databases
+      # Persist SQLite databases and Active Storage files
       - ./storage:/rails/storage
-      # Persist uploaded files
+      # Persist uploaded files and precompiled assets
       - ./public:/rails/public
-      # Optional: persist logs
+      # Persist application logs
       - ./log:/rails/log
+      # Optional: persist tmp cache for better performance
+      # - ./tmp:/rails/tmp
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/up"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-    # Uncomment if you need to override default command
-    # command: ./bin/thrust ./bin/rails server
+    depends_on:
+      - worker
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fraktur_ocr:latest
+    container_name: fraktur_ocr_worker
+    restart: unless-stopped
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+    volumes:
+      # Share the same volumes as web for database access
+      - ./storage:/rails/storage
+      - ./public:/rails/public
+      - ./log:/rails/log
+    command: bin/rails solid_queue:start
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f solid_queue || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   default:
