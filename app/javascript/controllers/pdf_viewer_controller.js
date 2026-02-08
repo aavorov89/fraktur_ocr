@@ -267,10 +267,23 @@ export default class extends Controller {
 
       if (response.ok) {
         const html = await response.text()
-        // Render Turbo Stream response by appending to body
-        const streamElement = document.createElement('template')
-        streamElement.innerHTML = html
-        document.body.appendChild(streamElement.content)
+        // Parse and execute each turbo-stream action
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(html, 'text/html')
+        const streams = doc.querySelectorAll('turbo-stream')
+
+        streams.forEach(stream => {
+          const action = stream.getAttribute('action')
+          const target = stream.getAttribute('target')
+          const template = stream.querySelector('template')
+
+          if (action === 'replace' && target && template) {
+            const targetElement = document.getElementById(target)
+            if (targetElement) {
+              targetElement.replaceWith(template.content.cloneNode(true))
+            }
+          }
+        })
       } else {
         console.error("OCR request failed:", response.status)
       }
