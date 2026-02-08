@@ -267,7 +267,10 @@ export default class extends Controller {
 
       if (response.ok) {
         const html = await response.text()
-        Turbo.renderStreamMessage(html)
+        // Render Turbo Stream response by appending to body
+        const streamElement = document.createElement('template')
+        streamElement.innerHTML = html
+        document.body.appendChild(streamElement.content)
       } else {
         console.error("OCR request failed:", response.status)
       }
