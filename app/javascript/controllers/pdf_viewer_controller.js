@@ -27,6 +27,7 @@ export default class extends Controller {
     this.drawing = false
     this.startPos = null
     this.rect = null
+    this.submitting = false  // Prevent duplicate submissions
 
     this.loadPdf()
     this.boundKeyHandler = this.handleKeydown.bind(this)
@@ -247,6 +248,13 @@ export default class extends Controller {
   // === OCR submission via Turbo Stream ===
 
   async submitOcr(cropDataUrl) {
+    // Prevent duplicate submissions
+    if (this.submitting) {
+      console.log("OCR submission already in progress, skipping")
+      return
+    }
+    this.submitting = true
+
     const csrfToken = document.querySelector("meta[name='csrf-token']")?.content
 
     try {
@@ -291,6 +299,9 @@ export default class extends Controller {
       }
     } catch (err) {
       console.error("OCR submission error:", err)
+    } finally {
+      // Reset submission flag after a delay to allow for next request
+      setTimeout(() => { this.submitting = false }, 2000)
     }
   }
 }
