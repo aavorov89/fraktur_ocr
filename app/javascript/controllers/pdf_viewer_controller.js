@@ -19,6 +19,7 @@ export default class extends Controller {
   }
 
   connect() {
+    console.log("PDF Viewer controller connected")
     this.currentPage = 1
     this.totalPages = 0
     this.scale = 1.5
@@ -39,9 +40,11 @@ export default class extends Controller {
   }
 
   async loadPdf() {
+    console.log("Loading PDF from:", this.urlValue)
     try {
       this.pdfDoc = await pdfjsLib.getDocument(this.urlValue).promise
       this.totalPages = this.pdfDoc.numPages
+      console.log("PDF loaded, total pages:", this.totalPages)
       this.updateToolbar()
       this.renderPage()
       this.generateThumbnails()
@@ -80,10 +83,15 @@ export default class extends Controller {
   }
 
   async generateThumbnails() {
+    console.log("Generating thumbnails for", this.totalPages, "pages")
     const sidebar = this.thumbSidebarTarget
     sidebar.innerHTML = ""
 
-    for (let i = 1; i <= this.totalPages; i++) {
+    // Only generate thumbnails for first 50 pages to avoid overwhelming browser
+    const maxThumbs = Math.min(this.totalPages, 50)
+    console.log("Generating first", maxThumbs, "thumbnails")
+
+    for (let i = 1; i <= maxThumbs; i++) {
       const page = await this.pdfDoc.getPage(i)
       const viewport = page.getViewport({ scale: 0.2 })
 
@@ -110,6 +118,14 @@ export default class extends Controller {
       btn.appendChild(img)
       btn.appendChild(num)
       sidebar.appendChild(btn)
+    }
+
+    // If there are more pages, show a message
+    if (this.totalPages > maxThumbs) {
+      const message = document.createElement("div")
+      message.style.cssText = "padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center;"
+      message.textContent = `Showing ${maxThumbs} of ${this.totalPages} pages`
+      sidebar.appendChild(message)
     }
   }
 
@@ -248,6 +264,7 @@ export default class extends Controller {
   // === OCR submission via Turbo Stream ===
 
   async submitOcr(cropDataUrl) {
+    console.log("submitOcr called")
     // Prevent duplicate submissions
     if (this.submitting) {
       console.log("OCR submission already in progress, skipping")
