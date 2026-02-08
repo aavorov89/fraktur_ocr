@@ -29,6 +29,9 @@ export default class extends Controller {
     this.startPos = null
     this.rect = null
     this.submitting = false  // Prevent duplicate submissions
+    this.thumbsLoaded = 0     // Track how many thumbnails loaded
+    this.thumbsPerBatch = 50  // Load 50 at a time
+    this.loadingThumbs = false // Prevent concurrent loading
 
     this.loadPdf()
     this.boundKeyHandler = this.handleKeydown.bind(this)
@@ -87,11 +90,25 @@ export default class extends Controller {
     const sidebar = this.thumbSidebarTarget
     sidebar.innerHTML = ""
 
-    // Only generate thumbnails for first 50 pages to avoid overwhelming browser
-    const maxThumbs = Math.min(this.totalPages, 50)
-    console.log("Generating first", maxThumbs, "thumbnails")
+    // Set up scroll listener for lazy loading
+    sidebar.addEventListener('scroll', () => this.handleThumbScroll())
 
-    for (let i = 1; i <= maxThumbs; i++) {
+    // Load first batch
+    await this.loadNextThumbBatch()
+  }
+
+  async loadNextThumbBatch() {
+    if (this.loadingThumbs || this.thumbsLoaded >= this.totalPages) return
+
+    this.loadingThumbs = true
+    const startPage = this.thumbsLoaded + 1
+    const endPage = Math.min(this.thumbsLoaded + this.thumbsPerBatch, this.totalPages)
+
+    console.log(`Loading thumbnails ${startPage}-${endPage}`)
+
+    const sidebar = this.thumbSidebarTarget
+
+    for (let i = startPage; i <= endPage; i++) {
       const page = await this.pdfDoc.getPage(i)
       const viewport = page.getViewport({ scale: 0.2 })
 
@@ -120,12 +137,37 @@ export default class extends Controller {
       sidebar.appendChild(btn)
     }
 
-    // If there are more pages, show a message
-    if (this.totalPages > maxThumbs) {
-      const message = document.createElement("div")
-      message.style.cssText = "padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center;"
-      message.textContent = `Showing ${maxThumbs} of ${this.totalPages} pages`
-      sidebar.appendChild(message)
+    this.thumbsLoaded = endPage
+    this.loadingThumbs = false
+
+    // Update or add progress message
+    this.updateThumbMessage()
+  }
+
+  updateThumbMessage() {
+    const sidebar = this.thumbSidebarTarget
+    let message = sidebar.querySelector('.thumb-message')
+
+    if (this.thumbsLoaded < this.totalPages) {
+      if (!message) {
+        message = document.createElement("div")
+        message.className = "thumb-message"
+        message.style.cssText = "padding: 10px; font-size: 11px; color: var(--text-muted); text-align: center;"
+        sidebar.appendChild(message)
+      }
+      message.textContent = `Loaded ${this.thumbsLoaded} of ${this.totalPages} pages`
+    } else if (message) {
+      message.remove()
+    }
+  }
+
+  handleThumbScroll() {
+    const sidebar = this.thumbSidebarTarget
+    const scrollBottom = sidebar.scrollHeight - sidebar.scrollTop - sidebar.clientHeight
+
+    // Load more when within 200px of bottom
+    if (scrollBottom < 200 && !this.loadingThumbs) {
+      this.loadNextThumbBatch()
     }
   }
 
