@@ -1,3 +1,6 @@
+require 'net/http'
+require 'json'
+
 class OcrJob < ApplicationJob
   queue_as :default
 
