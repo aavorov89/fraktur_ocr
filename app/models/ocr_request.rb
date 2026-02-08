@@ -12,14 +12,14 @@ class OcrRequest < ApplicationRecord
   private
 
   def broadcast_result
-    broadcast_replace_to(
+    broadcast_update_to(
       [document, "ocr"],
       target: "ocr_panel",
       partial: "documents/ocr_panel",
       locals: { ocr_request: self }
     )
 
-    broadcast_replace_to(
+    broadcast_update_to(
       [document, "ocr"],
       target: "translation_panel",
       partial: "documents/translation_panel",

@@ -344,12 +344,17 @@ export default class extends Controller {
           const target = stream.getAttribute('target')
           const template = stream.querySelector('template')
 
-          if (action === 'replace' && target && template) {
+          if (target && template) {
             const targetElement = document.getElementById(target)
             if (targetElement) {
-              // Replace innerHTML to preserve the target element's ID
-              targetElement.innerHTML = ''
-              targetElement.appendChild(template.content.cloneNode(true))
+              if (action === 'update') {
+                // Update innerHTML, preserving the wrapper
+                targetElement.innerHTML = ''
+                targetElement.appendChild(template.content.cloneNode(true))
+              } else if (action === 'replace') {
+                // Replace entire element
+                targetElement.replaceWith(template.content.cloneNode(true))
+              }
             }
           }
         })

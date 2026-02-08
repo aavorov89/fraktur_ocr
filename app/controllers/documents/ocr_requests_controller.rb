@@ -10,10 +10,10 @@ module Documents
         respond_to do |format|
           format.turbo_stream do
             render turbo_stream: [
-              turbo_stream.replace("ocr_panel",
+              turbo_stream.update("ocr_panel",
                 partial: "documents/ocr_panel",
                 locals: { ocr_request: @ocr_request }),
-              turbo_stream.replace("translation_panel",
+              turbo_stream.update("translation_panel",
                 partial: "documents/translation_panel",
                 locals: { ocr_request: @ocr_request })
             ]
