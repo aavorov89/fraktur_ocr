@@ -22,7 +22,7 @@ export default class extends Controller {
     console.log("PDF Viewer controller connected")
     this.currentPage = 1
     this.totalPages = 0
-    this.scale = 1.5
+    this.scale = 0.5
     this.pdfDoc = null
     this.renderTask = null
     this.drawing = false
@@ -74,6 +74,10 @@ export default class extends Controller {
     const overlay = this.overlayCanvasTarget
     overlay.width = viewport.width
     overlay.height = viewport.height
+    // Explicitly match overlay CSS size to main canvas display size
+    // so mouse-to-canvas coordinate conversion stays 1:1
+    overlay.style.width = canvas.width + "px"
+    overlay.style.height = canvas.height + "px"
 
     try {
       this.renderTask = page.render({ canvasContext: ctx, viewport })
@@ -261,15 +265,24 @@ export default class extends Controller {
     }
 
     // Crop selection from main canvas
+    // Convert overlay coordinates to main canvas coordinates in case of any size mismatch
     const mainCanvas = this.mainCanvasTarget
+    const overlay = this.overlayCanvasTarget
+    const scaleX = mainCanvas.width / overlay.width
+    const scaleY = mainCanvas.height / overlay.height
+    const sx = Math.round(this.rect.x * scaleX)
+    const sy = Math.round(this.rect.y * scaleY)
+    const sw = Math.round(this.rect.w * scaleX)
+    const sh = Math.round(this.rect.h * scaleY)
+
     const cropCanvas = document.createElement("canvas")
-    cropCanvas.width = this.rect.w
-    cropCanvas.height = this.rect.h
+    cropCanvas.width = sw
+    cropCanvas.height = sh
     const cropCtx = cropCanvas.getContext("2d")
     cropCtx.drawImage(
       mainCanvas,
-      this.rect.x, this.rect.y, this.rect.w, this.rect.h,
-      0, 0, this.rect.w, this.rect.h
+      sx, sy, sw, sh,
+      0, 0, sw, sh
     )
 
     const dataUrl = cropCanvas.toDataURL("image/png")
