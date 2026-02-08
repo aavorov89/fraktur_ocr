@@ -25,6 +25,7 @@ class OcrJob < ApplicationJob
         status: :completed,
         recognized_text: response[:text]
       )
+      TranslationJob.perform_later(ocr_request.id)
     else
       ocr_request.update!(
         status: :failed,
