@@ -1,0 +1,76 @@
+<%# Subscribe to Turbo Stream broadcasts for this document %>
+<%= turbo_stream_from @document, "ocr" %>
+
+<div class="panels">
+  <%# === LEFT PANEL: PDF Viewer === %>
+  <div class="panel panel-pdf">
+    <div class="panel-label">
+      Source PDF
+      <span class="panel-label-detail"><%= @document.name %></span>
+    </div>
+    <div class="pdf-viewer"
+         data-controller="pdf-viewer"
+         data-pdf-viewer-url-value="<%= url_for(@document.file) %>"
+         data-pdf-viewer-document-id-value="<%= @document.id %>"
+         data-pdf-viewer-ocr-url-value="<%= document_ocr_requests_path(@document) %>">
+
+      <%# Thumbnail sidebar %>
+      <div class="thumb-sidebar" data-pdf-viewer-target="thumbSidebar"></div>
+
+      <%# Main canvas area %>
+      <div class="pdf-main">
+        <div class="pdf-toolbar">
+          <button class="toolbar-btn" data-action="pdf-viewer#prevPage" data-pdf-viewer-target="prevBtn" disabled>‹</button>
+          <span class="page-info" data-pdf-viewer-target="pageInfo">– / –</span>
+          <button class="toolbar-btn" data-action="pdf-viewer#nextPage" data-pdf-viewer-target="nextBtn" disabled>›</button>
+          <div class="toolbar-spacer"></div>
+          <button class="toolbar-btn zoom-btn" data-action="pdf-viewer#zoomOut">−</button>
+          <span class="zoom-info" data-pdf-viewer-target="zoomInfo">150%</span>
+          <button class="toolbar-btn zoom-btn" data-action="pdf-viewer#zoomIn">+</button>
+          <div class="toolbar-spacer"></div>
+          <label class="toolbar-btn upload-btn" title="Load different PDF">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <%= form_with url: documents_path, method: :post, data: { controller: "quick-upload", turbo: false } do |f| %>
+              <%= f.file_field :file, accept: "application/pdf", hidden: true, direct_upload: false,
+                  data: { quick_upload_target: "input", action: "change->quick-upload#submit" } %>
+              <%= f.hidden_field :name, value: "", data: { quick_upload_target: "name" } %>
+            <% end %>
+          </label>
+        </div>
+
+        <div class="pdf-scroll" data-pdf-viewer-target="scrollContainer">
+          <div class="canvas-wrapper">
+            <canvas data-pdf-viewer-target="mainCanvas" class="pdf-canvas"></canvas>
+            <canvas data-pdf-viewer-target="overlayCanvas" class="overlay-canvas"
+                    data-action="mousedown->pdf-viewer#startDraw mousemove->pdf-viewer#draw mouseup->pdf-viewer#endDraw mouseleave->pdf-viewer#endDraw"></canvas>
+            <div class="draw-hint" data-pdf-viewer-target="drawHint">
+              Click and drag to select text
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <%# === MIDDLE PANEL: OCR Result === %>
+  <div class="panel panel-ocr">
+    <div class="panel-label">Recognized Text</div>
+    <div id="ocr_panel">
+      <%= render "documents/ocr_panel", ocr_request: @ocr_request %>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <%# === RIGHT PANEL: Translation === %>
+  <div class="panel panel-translation">
+    <div class="panel-label">Translation</div>
+    <div id="translation_panel">
+      <%= render "documents/translation_panel", ocr_request: @ocr_request %>
+    </div>
+  </div>
+</div>

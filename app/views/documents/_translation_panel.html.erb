@@ -1,0 +1,25 @@
+<% if ocr_request.nil? %>
+  <div class="translation-state">
+    <span class="translation-state-text">Translation will appear here once text is recognized</span>
+  </div>
+
+<% elsif ocr_request.pending? || ocr_request.processing? %>
+  <div class="translation-state">
+    <span class="translation-state-text">Waiting for text recognition…</span>
+  </div>
+
+<% elsif ocr_request.failed? %>
+  <div class="translation-state">
+    <span class="translation-state-text">OCR failed — no text to translate</span>
+  </div>
+
+<% elsif ocr_request.completed? %>
+  <div class="translation-content">
+    <div class="translation-placeholder">
+      <div class="placeholder-badge">DeepL</div>
+      <p class="placeholder-text">
+        Translation integration coming soon. The recognized German text will be automatically translated here.
+      </p>
+    </div>
+  </div>
+<% end %>

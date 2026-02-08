@@ -1,0 +1,42 @@
+<div class="panels">
+  <div class="panel panel-pdf">
+    <div class="panel-label">Source PDF</div>
+    <div class="pdf-empty">
+      <%= form_with model: @document, class: "upload-form", data: { controller: "upload" } do |f| %>
+        <label class="upload-area" for="document_file" data-upload-target="dropzone" data-action="dragover->upload#dragover dragenter->upload#dragover dragleave->upload#dragleave drop->upload#drop">
+          <div class="upload-icon">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14,2 14,8 20,8"/>
+              <line x1="12" y1="18" x2="12" y2="12"/>
+              <polyline points="9,15 12,12 15,15"/>
+            </svg>
+          </div>
+          <span class="upload-text">Drop a PDF or click to upload</span>
+          <span class="upload-hint">German Gothic / Fraktur book scans</span>
+          <%= f.file_field :file, accept: "application/pdf", hidden: true, data: { upload_target: "input", action: "change->upload#fileSelected" } %>
+          <%= f.hidden_field :name, data: { upload_target: "name" } %>
+        </label>
+        <%= f.submit "Upload", class: "upload-submit", data: { upload_target: "submit" }, style: "display:none" %>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="panel panel-ocr">
+    <div class="panel-label">Recognized Text</div>
+    <div id="ocr_panel" class="ocr-state">
+      <span class="ocr-state-text">Upload a PDF to get started</span>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="panel panel-translation">
+    <div class="panel-label">Translation</div>
+    <div id="translation_panel" class="translation-state">
+      <span class="translation-state-text">Translation will appear here</span>
+    </div>
+  </div>
+</div>
