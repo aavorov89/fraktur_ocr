@@ -280,7 +280,9 @@ export default class extends Controller {
           if (action === 'replace' && target && template) {
             const targetElement = document.getElementById(target)
             if (targetElement) {
-              targetElement.replaceWith(template.content.cloneNode(true))
+              // Replace innerHTML to preserve the target element's ID
+              targetElement.innerHTML = ''
+              targetElement.appendChild(template.content.cloneNode(true))
             }
           }
         })
