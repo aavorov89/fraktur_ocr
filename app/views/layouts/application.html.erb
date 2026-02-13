@@ -28,6 +28,17 @@
     <% end %>
   </header>
 
+  <% if flash.any? %>
+    <div class="flash-messages">
+      <% flash.each do |type, message| %>
+        <div class="flash-message flash-<%= type %>" data-controller="flash" data-action="click->flash#dismiss">
+          <%= message %>
+          <button type="button" class="flash-close">&times;</button>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
   <%= yield %>
 </body>
 </html>
