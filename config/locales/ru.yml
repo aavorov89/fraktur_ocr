@@ -22,6 +22,11 @@ ru:
       upload_hint: "Сканы книг на немецком готическом шрифте / Fraktur"
       upload_button: "Загрузить"
 
+    create:
+      success: "Документ успешно загружен"
+      failed: "Не удалось загрузить документ: %{errors}"
+      upload_error: "Ошибка загрузки: %{message}"
+
     show:
       source_pdf: "Исходный PDF"
       page_info: "– / –"
