@@ -3,6 +3,14 @@
 # If running the rails server then create or migrate existing database
 if [ "${@: -2:1}" == "./bin/rails" ] && [ "${@: -1:1}" == "server" ]; then
   ./bin/rails db:prepare
+
+  # Sync precompiled assets from the image to the mounted volume.
+  # The volume mount overwrites /rails/public, so we copy fresh assets
+  # from a backup made during the Docker build.
+  if [ -d /rails/public-build/assets ]; then
+    echo "Syncing precompiled assets to mounted volume..."
+    cp -r /rails/public-build/assets /rails/public/
+  fi
 fi
 
 exec "${@}"
