@@ -22,6 +22,11 @@ en:
       upload_hint: "German Gothic / Fraktur book scans"
       upload_button: "Upload"
 
+    upload:
+      uploading: "Uploading…"
+      failed: "Upload failed"
+      try_again: "Click to try again"
+
     create:
       success: "Document uploaded successfully"
       failed: "Failed to upload document: %{errors}"

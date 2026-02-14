@@ -33,7 +33,7 @@
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
             <%= form_with url: documents_path, method: :post, data: { controller: "quick-upload", turbo: false } do |f| %>
-              <%= f.file_field :file, accept: "application/pdf", hidden: true, direct_upload: false,
+              <%= f.file_field :file, accept: "application/pdf", hidden: true, direct_upload: true,
                   data: { quick_upload_target: "input", action: "change->quick-upload#submit" } %>
               <%= f.hidden_field :name, value: "", data: { quick_upload_target: "name" } %>
             <% end %>

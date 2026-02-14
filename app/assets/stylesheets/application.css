@@ -271,6 +271,36 @@ a {
   letter-spacing: 0.03em;
 }
 
+/* --- Upload Progress --- */
+.upload-area > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-progress {
+  width: 200px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.upload-progress-text {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 500;
+  color: var(--text);
+}
+
 
 /* --- PDF Viewer --- */
 .pdf-viewer {
