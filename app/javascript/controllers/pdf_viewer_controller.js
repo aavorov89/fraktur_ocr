@@ -9,7 +9,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 export default class extends Controller {
   static targets = [
     "mainCanvas", "overlayCanvas", "thumbSidebar", "scrollContainer",
-    "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint"
+    "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint", "loadingOverlay", "loadingProgress"
   ]
 
   static values = {
@@ -44,15 +44,56 @@ export default class extends Controller {
 
   async loadPdf() {
     console.log("Loading PDF from:", this.urlValue)
+    this.showLoading()
+
     try {
-      this.pdfDoc = await pdfjsLib.getDocument(this.urlValue).promise
+      const loadingTask = pdfjsLib.getDocument({
+        url: this.urlValue,
+        // Enable range requests — pdf.js will only download
+        // what it needs per page instead of the entire file
+        disableRange: false,
+        disableStream: false,
+        disableAutoFetch: true,  // Don't prefetch the whole file
+        rangeChunkSize: 65536    // 64 KB chunks
+      })
+
+      loadingTask.onProgress = ({ loaded, total }) => {
+        if (total > 0) {
+          const pct = Math.round((loaded / total) * 100)
+          this.updateLoadingProgress(pct, loaded, total)
+        }
+      }
+
+      this.pdfDoc = await loadingTask.promise
       this.totalPages = this.pdfDoc.numPages
       console.log("PDF loaded, total pages:", this.totalPages)
+      this.hideLoading()
       this.updateToolbar()
       this.renderPage()
       this.generateThumbnails()
     } catch (err) {
       console.error("Failed to load PDF:", err)
+      this.hideLoading()
+    }
+  }
+
+  showLoading() {
+    if (this.hasLoadingOverlayTarget) {
+      this.loadingOverlayTarget.style.display = "flex"
+    }
+  }
+
+  hideLoading() {
+    if (this.hasLoadingOverlayTarget) {
+      this.loadingOverlayTarget.style.display = "none"
+    }
+  }
+
+  updateLoadingProgress(pct, loaded, total) {
+    if (this.hasLoadingProgressTarget) {
+      const mb = (loaded / 1024 / 1024).toFixed(1)
+      const totalMb = (total / 1024 / 1024).toFixed(1)
+      this.loadingProgressTarget.textContent = `${mb} / ${totalMb} MB`
     }
   }
 

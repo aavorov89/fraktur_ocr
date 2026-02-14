@@ -14,6 +14,13 @@
          data-pdf-viewer-document-id-value="<%= @document.id %>"
          data-pdf-viewer-ocr-url-value="<%= document_ocr_requests_path(@document) %>">
 
+      <%# Loading overlay %>
+      <div class="pdf-loading-overlay" data-pdf-viewer-target="loadingOverlay">
+        <div class="pdf-loading-spinner"></div>
+        <span class="pdf-loading-text">Loading PDF…</span>
+        <span class="pdf-loading-progress" data-pdf-viewer-target="loadingProgress"></span>
+      </div>
+
       <%# Thumbnail sidebar %>
       <div class="thumb-sidebar" data-pdf-viewer-target="thumbSidebar"></div>
 

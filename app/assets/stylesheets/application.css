@@ -302,11 +302,51 @@ a {
 }
 
 
+/* --- PDF Loading Overlay --- */
+.pdf-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg-panel);
+  z-index: 10;
+}
+
+.pdf-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.pdf-loading-text {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.pdf-loading-progress {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+
 /* --- PDF Viewer --- */
 .pdf-viewer {
   flex: 1;
   display: flex;
   overflow: hidden;
+  position: relative;
 }
 
 /* Thumbnail sidebar */
