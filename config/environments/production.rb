@@ -24,9 +24,9 @@ Rails.application.configure do
   # Store uploaded files on the local file system (see config/storage.yml for options).
   config.active_storage.service = :local
 
-  # Enable X-Sendfile so Thruster serves files directly from disk,
-  # bypassing Ruby for large file downloads (e.g. 90 MB PDFs).
-  config.action_dispatch.x_sendfile_header = "X-Sendfile"
+  # Enable X-Accel-Redirect so nginx serves files directly from disk,
+  # bypassing Ruby and Thruster for large file downloads (e.g. 90+ MB PDFs).
+  config.action_dispatch.x_sendfile_header = "X-Accel-Redirect"
 
   # Assume all access to the app is happening through a SSL-terminating reverse proxy.
   # config.assume_ssl = true
