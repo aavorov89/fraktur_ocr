@@ -37,6 +37,9 @@ en:
       page_info: "– / –"
       load_different_pdf: "Load different PDF"
       draw_hint: "Click and drag to select text"
+      pdf_missing: "PDF not available in this browser"
+      pdf_missing_hint: "Select the PDF file again"
+      reselect_pdf: "Select PDF"
 
     panels:
       source_pdf: "Source PDF"

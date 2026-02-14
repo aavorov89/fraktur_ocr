@@ -1,13 +1,16 @@
 import { Controller } from "@hotwired/stimulus"
+import { storePdf } from "services/pdf_storage"
 
 export default class extends Controller {
-  static targets = ["input", "name"]
+  static targets = ["input"]
+  static values = { documentId: Number }
 
-  submit() {
+  async submit() {
     const file = this.inputTarget.files[0]
     if (!file) return
 
-    this.nameTarget.value = file.name.replace(/\.pdf$/i, "")
-    this.element.requestSubmit()
+    const arrayBuffer = await file.arrayBuffer()
+    await storePdf(this.documentIdValue, file.name, arrayBuffer)
+    window.location.reload()
   }
 }

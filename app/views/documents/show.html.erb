@@ -10,8 +10,8 @@
     </div>
     <div class="pdf-viewer"
          data-controller="pdf-viewer"
-         data-pdf-viewer-url-value="<%= url_for(@document.file) %>"
          data-pdf-viewer-document-id-value="<%= @document.id %>"
+         data-pdf-viewer-document-name-value="<%= @document.name %>"
          data-pdf-viewer-ocr-url-value="<%= document_ocr_requests_path(@document) %>">
 
       <%# Loading overlay %>
@@ -19,6 +19,26 @@
         <div class="pdf-loading-spinner"></div>
         <span class="pdf-loading-text">Loading PDF…</span>
         <span class="pdf-loading-progress" data-pdf-viewer-target="loadingProgress"></span>
+      </div>
+
+      <%# Missing PDF overlay %>
+      <div class="pdf-missing-overlay" data-pdf-viewer-target="missingOverlay" style="display:none">
+        <div class="upload-icon">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14,2 14,8 20,8"/>
+            <line x1="12" y1="18" x2="12" y2="12"/>
+            <polyline points="9,15 12,12 15,15"/>
+          </svg>
+        </div>
+        <span class="upload-text"><%= t('documents.show.pdf_missing') %></span>
+        <span class="upload-hint"><%= t('documents.show.pdf_missing_hint') %></span>
+        <label class="reselect-btn">
+          <%= t('documents.show.reselect_pdf') %>
+          <input type="file" accept="application/pdf" hidden
+                 data-pdf-viewer-target="reselectInput"
+                 data-action="change->pdf-viewer#reselectPdf">
+        </label>
       </div>
 
       <%# Thumbnail sidebar %>
@@ -35,15 +55,15 @@
           <span class="zoom-info" data-pdf-viewer-target="zoomInfo">50%</span>
           <button class="toolbar-btn zoom-btn" data-action="pdf-viewer#zoomIn">+</button>
           <div class="toolbar-spacer"></div>
-          <label class="toolbar-btn upload-btn" title="Load different PDF">
+          <label class="toolbar-btn upload-btn" title="<%= t('documents.show.load_different_pdf') %>"
+                 data-controller="quick-upload"
+                 data-quick-upload-document-id-value="<%= @document.id %>">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
-            <%= form_with url: documents_path, method: :post, data: { controller: "quick-upload", turbo: false } do |f| %>
-              <%= f.file_field :file, accept: "application/pdf", hidden: true, direct_upload: true,
-                  data: { quick_upload_target: "input", action: "change->quick-upload#submit" } %>
-              <%= f.hidden_field :name, value: "", data: { quick_upload_target: "name" } %>
-            <% end %>
+            <input type="file" accept="application/pdf" hidden
+                   data-quick-upload-target="input"
+                   data-action="change->quick-upload#submit">
           </label>
         </div>
 

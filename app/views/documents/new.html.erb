@@ -3,7 +3,7 @@
     <div class="panel-label"><%= t('documents.panels.source_pdf') %></div>
     <div class="pdf-empty">
       <%= form_with model: @document, class: "upload-form", data: { controller: "upload" } do |f| %>
-        <label class="upload-area" for="document_file" data-upload-target="dropzone" data-action="dragover->upload#dragover dragenter->upload#dragover dragleave->upload#dragleave drop->upload#drop">
+        <label class="upload-area" for="pdf_file_input" data-upload-target="dropzone" data-action="dragover->upload#dragover dragenter->upload#dragover dragleave->upload#dragleave drop->upload#drop">
           <div data-upload-target="prompt">
             <div class="upload-icon">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -21,9 +21,10 @@
               <div class="upload-progress-bar" data-upload-target="progressBar" style="width: 0%"></div>
             </div>
             <span class="upload-progress-text" data-upload-target="progressText">0%</span>
-            <span class="upload-hint">Uploading…</span>
+            <span class="upload-hint"><%= t('documents.upload.uploading') %></span>
           </div>
-          <%= f.file_field :file, accept: "application/pdf", hidden: true, direct_upload: true, data: { upload_target: "input", action: "change->upload#fileSelected" } %>
+          <input type="file" id="pdf_file_input" accept="application/pdf" hidden
+                 data-upload-target="input" data-action="change->upload#fileSelected">
           <%= f.hidden_field :name, data: { upload_target: "name" } %>
         </label>
         <%= f.submit t('documents.new.upload_button'), class: "upload-submit", data: { upload_target: "submit" }, style: "display:none" %>

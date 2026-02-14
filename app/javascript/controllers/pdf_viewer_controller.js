@@ -1,6 +1,6 @@
 import { Controller } from "@hotwired/stimulus"
 import * as pdfjsLib from "pdfjs-dist"
-import * as Turbo from "@hotwired/turbo-rails"
+import { consumePendingPdf, storePdf, getPdf } from "services/pdf_storage"
 
 // Set pdf.js worker URL
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -9,12 +9,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 export default class extends Controller {
   static targets = [
     "mainCanvas", "overlayCanvas", "thumbSidebar", "scrollContainer",
-    "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint", "loadingOverlay", "loadingProgress"
+    "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint",
+    "loadingOverlay", "loadingProgress", "missingOverlay", "reselectInput"
   ]
 
   static values = {
-    url: String,
     documentId: Number,
+    documentName: String,
     ocrUrl: String
   }
 
@@ -28,10 +29,10 @@ export default class extends Controller {
     this.drawing = false
     this.startPos = null
     this.rect = null
-    this.submitting = false  // Prevent duplicate submissions
-    this.thumbsLoaded = 0     // Track how many thumbnails loaded
-    this.thumbsPerBatch = 50  // Load 50 at a time
-    this.loadingThumbs = false // Prevent concurrent loading
+    this.submitting = false
+    this.thumbsLoaded = 0
+    this.thumbsPerBatch = 50
+    this.loadingThumbs = false
 
     this.loadPdf()
     this.boundKeyHandler = this.handleKeydown.bind(this)
@@ -43,26 +44,38 @@ export default class extends Controller {
   }
 
   async loadPdf() {
-    console.log("Loading PDF from:", this.urlValue)
     this.showLoading()
 
-    try {
-      const loadingTask = pdfjsLib.getDocument({
-        url: this.urlValue,
-        // Enable range requests — pdf.js will only download
-        // what it needs per page instead of the entire file
-        disableRange: false,
-        disableStream: false,
-        disableAutoFetch: true,  // Don't prefetch the whole file
-        rangeChunkSize: 65536    // 64 KB chunks
-      })
+    // 1. Check for a freshly uploaded pending PDF (from upload page)
+    const pending = consumePendingPdf()
+    if (pending) {
+      console.log("Loading PDF from pending upload")
+      await storePdf(this.documentIdValue, pending.name, pending.data)
+      this.openPdfData(pending.data)
+      return
+    }
 
-      loadingTask.onProgress = ({ loaded, total }) => {
-        if (total > 0) {
-          const pct = Math.round((loaded / total) * 100)
-          this.updateLoadingProgress(pct, loaded, total)
-        }
+    // 2. Check IndexedDB for a previously stored PDF
+    try {
+      const stored = await getPdf(this.documentIdValue)
+      if (stored) {
+        console.log("Loading PDF from IndexedDB")
+        this.openPdfData(stored.data)
+        return
       }
+    } catch (err) {
+      console.error("IndexedDB read error:", err)
+    }
+
+    // 3. No PDF available — show re-select overlay
+    console.log("No PDF found, showing re-select overlay")
+    this.hideLoading()
+    this.showMissing()
+  }
+
+  async openPdfData(arrayBuffer) {
+    try {
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
 
       this.pdfDoc = await loadingTask.promise
       this.totalPages = this.pdfDoc.numPages
@@ -74,7 +87,18 @@ export default class extends Controller {
     } catch (err) {
       console.error("Failed to load PDF:", err)
       this.hideLoading()
+      this.showMissing()
     }
+  }
+
+  async reselectPdf() {
+    const file = this.reselectInputTarget.files[0]
+    if (!file) return
+
+    const arrayBuffer = await file.arrayBuffer()
+    await storePdf(this.documentIdValue, file.name, arrayBuffer)
+    this.hideMissing()
+    this.openPdfData(arrayBuffer)
   }
 
   showLoading() {
@@ -89,11 +113,15 @@ export default class extends Controller {
     }
   }
 
-  updateLoadingProgress(pct, loaded, total) {
-    if (this.hasLoadingProgressTarget) {
-      const mb = (loaded / 1024 / 1024).toFixed(1)
-      const totalMb = (total / 1024 / 1024).toFixed(1)
-      this.loadingProgressTarget.textContent = `${mb} / ${totalMb} MB`
+  showMissing() {
+    if (this.hasMissingOverlayTarget) {
+      this.missingOverlayTarget.style.display = "flex"
+    }
+  }
+
+  hideMissing() {
+    if (this.hasMissingOverlayTarget) {
+      this.missingOverlayTarget.style.display = "none"
     }
   }
 
@@ -115,8 +143,6 @@ export default class extends Controller {
     const overlay = this.overlayCanvasTarget
     overlay.width = viewport.width
     overlay.height = viewport.height
-    // Explicitly match overlay CSS size to main canvas display size
-    // so mouse-to-canvas coordinate conversion stays 1:1
     overlay.style.width = canvas.width + "px"
     overlay.style.height = canvas.height + "px"
 
@@ -135,10 +161,8 @@ export default class extends Controller {
     const sidebar = this.thumbSidebarTarget
     sidebar.innerHTML = ""
 
-    // Set up scroll listener for lazy loading
     sidebar.addEventListener('scroll', () => this.handleThumbScroll())
 
-    // Load first batch
     await this.loadNextThumbBatch()
   }
 
@@ -185,7 +209,6 @@ export default class extends Controller {
     this.thumbsLoaded = endPage
     this.loadingThumbs = false
 
-    // Update or add progress message
     this.updateThumbMessage()
   }
 
@@ -210,7 +233,6 @@ export default class extends Controller {
     const sidebar = this.thumbSidebarTarget
     const scrollBottom = sidebar.scrollHeight - sidebar.scrollTop - sidebar.clientHeight
 
-    // Load more when within 200px of bottom
     if (scrollBottom < 200 && !this.loadingThumbs) {
       this.loadNextThumbBatch()
     }
@@ -305,8 +327,6 @@ export default class extends Controller {
       return
     }
 
-    // Crop selection from main canvas
-    // Convert overlay coordinates to main canvas coordinates in case of any size mismatch
     const mainCanvas = this.mainCanvasTarget
     const overlay = this.overlayCanvasTarget
     const scaleX = mainCanvas.width / overlay.width
@@ -329,7 +349,6 @@ export default class extends Controller {
     const dataUrl = cropCanvas.toDataURL("image/png")
     this.submitOcr(dataUrl)
 
-    // Fade out selection
     setTimeout(() => {
       this.rect = null
       this.clearOverlay()
@@ -361,7 +380,6 @@ export default class extends Controller {
 
   async submitOcr(cropDataUrl) {
     console.log("submitOcr called")
-    // Prevent duplicate submissions
     if (this.submitting) {
       console.log("OCR submission already in progress, skipping")
       return
@@ -388,7 +406,6 @@ export default class extends Controller {
 
       if (response.ok) {
         const html = await response.text()
-        // Parse and execute each turbo-stream action
         const parser = new DOMParser()
         const doc = parser.parseFromString(html, 'text/html')
         const streams = doc.querySelectorAll('turbo-stream')
@@ -402,11 +419,9 @@ export default class extends Controller {
             const targetElement = document.getElementById(target)
             if (targetElement) {
               if (action === 'update') {
-                // Update innerHTML, preserving the wrapper
                 targetElement.innerHTML = ''
                 targetElement.appendChild(template.content.cloneNode(true))
               } else if (action === 'replace') {
-                // Replace entire element
                 targetElement.replaceWith(template.content.cloneNode(true))
               }
             }
@@ -418,7 +433,6 @@ export default class extends Controller {
     } catch (err) {
       console.error("OCR submission error:", err)
     } finally {
-      // Reset submission flag after a delay to allow for next request
       setTimeout(() => { this.submitting = false }, 2000)
     }
   }
