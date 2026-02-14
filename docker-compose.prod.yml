@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUBY_VERSION: 3.2.2
+    image: fraktur_ocr:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_web
+    restart: always
+    ports:
+      - "${HOST_PORT:-3000}:80"
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_SERVE_STATIC_FILES=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+      - RAILS_HOSTNAME=${RAILS_HOSTNAME:-localhost}
+      - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
+      # Puma worker timeout for large file uploads (10 minutes)
+      - PUMA_WORKER_TIMEOUT=600
+      # Thruster timeout configuration for large file uploads (10 minutes)
+      - HTTP_READ_TIMEOUT=600
+      - HTTP_WRITE_TIMEOUT=600
+      - HTTP_IDLE_TIMEOUT=300
+      # Disable Thruster's X-Sendfile so X-Accel-Redirect passes through to nginx
+      - X_SENDFILE_ENABLED=0
+      # Add any API keys or secrets here
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - DEEPL_API_KEY=${DEEPL_API_KEY}
+    volumes:
+      # Persist SQLite databases and Active Storage files
+      - ./storage:/rails/storage
+      # Persist application logs
+      - ./log:/rails/log
+      # Optional: persist tmp cache for better performance
+      # - ./tmp:/rails/tmp
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.project=fraktur_ocr"
+    depends_on:
+      - worker
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUBY_VERSION: 3.2.2
+    image: fraktur_ocr:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_worker
+    restart: always
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+      - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
+      # Add any API keys or secrets here
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # - DEEPL_API_KEY=${DEEPL_API_KEY}
+    volumes:
+      # Share the same volumes as web for database access
+      - ./storage:/rails/storage
+      - ./public:/rails/public
+      - ./log:/rails/log
+    command: bin/rails solid_queue:start
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f solid_queue || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "com.docker.compose.project=fraktur_ocr"
+
+networks:
+  default:
+    name: fraktur_ocr_network
+    driver: bridge
