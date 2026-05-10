@@ -1,0 +1,170 @@
+# Production compose for a VPS. Postgres runs as a dedicated container so the
+# stack is self-contained — no host-side Postgres setup required. Pulls prebuilt
+# images for `web` and `render` from GHCR (no `build:` directives).
+#
+# Required env (in /srv/fraktur_ocr/.env on the VPS):
+#   GHCR_OWNER             — lowercase GitHub owner (e.g. aavorov89)
+#   IMAGE_TAG              — set per deploy (defaults to "latest")
+#   RAILS_MASTER_KEY
+#   RAILS_HOSTNAME
+#   POSTGRES_USER
+#   POSTGRES_PASSWORD
+#   POSTGRES_DB
+#   INTERNAL_AUTH_SECRET
+#   HOST_PORT              — host port to expose web on (e.g. 3000 or 80)
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fraktur_ocr_db
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    image: ghcr.io/${GHCR_OWNER}/fraktur_ocr/web:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_web
+    restart: always
+    ports:
+      - "${HOST_PORT:-3000}:80"
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_SERVE_STATIC_FILES=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+      - RAILS_HOSTNAME=${RAILS_HOSTNAME:-localhost}
+      - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - PDF_ROOT_DIR=/var/lib/fraktur/pdfs
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
+      - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET}
+      - PUMA_WORKER_TIMEOUT=600
+      - HTTP_READ_TIMEOUT=600
+      - HTTP_WRITE_TIMEOUT=600
+      - HTTP_IDLE_TIMEOUT=300
+      - X_SENDFILE_ENABLED=0
+    volumes:
+      - ./storage:/rails/storage
+      - ./log:/rails/log
+      - pdfs:/var/lib/fraktur/pdfs
+      - crops:/var/lib/fraktur/crops
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
+  worker:
+    image: ghcr.io/${GHCR_OWNER}/fraktur_ocr/web:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_worker
+    restart: always
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+      - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
+    volumes:
+      - ./storage:/rails/storage
+      - ./log:/rails/log
+      - crops:/var/lib/fraktur/crops
+    command: bin/rails solid_queue:start
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f solid_queue || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  render:
+    image: ghcr.io/${GHCR_OWNER}/fraktur_ocr/render:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_render
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      - PDF_ROOT_DIR=/var/lib/fraktur/pdfs
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
+      - CACHE_DIR=/var/lib/fraktur/render-cache
+      - RAILS_BASE_URL=http://web:80
+      - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET}
+    volumes:
+      - pdfs:/var/lib/fraktur/pdfs
+      - crops:/var/lib/fraktur/crops
+      - render_cache:/var/lib/fraktur/render-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      web:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+    driver: local
+  pdfs:
+    driver: local
+  crops:
+    driver: local
+  render_cache:
+    driver: local
+
+networks:
+  default:
+    name: fraktur_ocr_network
+    driver: bridge
