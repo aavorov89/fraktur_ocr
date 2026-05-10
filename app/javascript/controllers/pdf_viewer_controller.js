@@ -31,7 +31,10 @@ export default class extends Controller {
     this.startPos = null
     this.rect = null
     this.submitting = false
-    this.pdfReadyForOcr = false
+    // Tracks whether the PDF has finished syncing to the server. While false,
+    // OCR uses a browser-rendered high-DPI crop (no upload latency); once true,
+    // OCR sends rect_pts and lets the Go renderer produce the crop.
+    this.serverHasPdf = false
     this.thumbsLoaded = 0
     this.thumbsPerBatch = 50
     this.loadingThumbs = false
@@ -89,10 +92,10 @@ export default class extends Controller {
       this.updateToolbar()
       this.renderPage()
       this.generateThumbnails()
-      // Block region selection until the PDF is on the server, otherwise
-      // the Go renderer can't find the source file and the river job is
-      // cancelled with no feedback to the user.
-      await this.syncPdfToServer(forServer)
+      // Fire-and-forget — drawing is allowed immediately because endDraw()
+      // falls back to a browser-rendered high-DPI crop while serverHasPdf
+      // is still false.
+      this.syncPdfToServer(forServer)
     } catch (err) {
       console.error("Failed to load PDF:", err)
       this.hideLoading()
@@ -103,22 +106,14 @@ export default class extends Controller {
   async syncPdfToServer(arrayBuffer) {
     try {
       this.showSyncing()
-      this.setOcrEnabled(false)
       const uploaded = await ensurePdfOnServer(this.documentIdValue, arrayBuffer)
       if (uploaded) console.log("PDF uploaded to server")
-      this.setOcrEnabled(true)
+      this.serverHasPdf = true
     } catch (err) {
       console.error("PDF server sync failed:", err)
-      // Leave OCR disabled — without a server-side PDF the renderer cannot work.
+      // Browser-rendered crops still work; the user keeps using the app.
     } finally {
       this.hideSyncing()
-    }
-  }
-
-  setOcrEnabled(enabled) {
-    this.pdfReadyForOcr = enabled
-    if (this.hasOverlayCanvasTarget) {
-      this.overlayCanvasTarget.style.cursor = enabled ? "crosshair" : "wait"
     }
   }
 
@@ -345,7 +340,6 @@ export default class extends Controller {
 
   startDraw(e) {
     if (e.button !== 0) return
-    if (!this.pdfReadyForOcr) return
     this.startPos = this.getCanvasPos(e)
     this.drawing = true
     this.rect = null
@@ -365,7 +359,7 @@ export default class extends Controller {
     this.drawRect(this.rect)
   }
 
-  endDraw() {
+  async endDraw() {
     if (!this.drawing) return
     this.drawing = false
 
@@ -376,22 +370,76 @@ export default class extends Controller {
       return
     }
 
-    // PDF.js renders at viewport.scale = this.scale, so 1 viewport pixel
-    // corresponds to 1 / this.scale PDF user-space points. Origin matches:
-    // both PDF.js viewport and the Go renderer treat top-left as (0, 0).
-    const rectPts = {
-      x: this.rect.x / this.scale,
-      y: this.rect.y / this.scale,
-      w: this.rect.w / this.scale,
-      h: this.rect.h / this.scale
-    }
+    const rectAtCapture = { ...this.rect }
+    const pageAtCapture = this.currentPage
+    const scaleAtCapture = this.scale
 
-    this.submitOcr(rectPts)
+    if (this.serverHasPdf) {
+      // Server-side path: send rect in PDF points; Go renderer crops at 300 DPI.
+      // PDF.js renders at viewport.scale = this.scale, so 1 viewport pixel
+      // corresponds to 1 / this.scale PDF user-space points. Origin matches:
+      // both PDF.js viewport and the Go renderer treat top-left as (0, 0).
+      const rectPts = {
+        x: rectAtCapture.x / scaleAtCapture,
+        y: rectAtCapture.y / scaleAtCapture,
+        w: rectAtCapture.w / scaleAtCapture,
+        h: rectAtCapture.h / scaleAtCapture
+      }
+      this.submitOcr({ rect_pts: rectPts })
+    } else {
+      // Browser-side fallback: render the page at high DPI offscreen, crop,
+      // ship the JPEG bitmap directly. Keeps the user productive while the
+      // PDF is still uploading to the server.
+      try {
+        const cropDataUrl = await this.highDpiCropDataUrl(rectAtCapture, pageAtCapture, scaleAtCapture)
+        this.submitOcr({ crop_data: cropDataUrl })
+      } catch (err) {
+        console.error("High-DPI browser crop failed:", err)
+      }
+    }
 
     setTimeout(() => {
       this.rect = null
       this.clearOverlay()
     }, 500)
+  }
+
+  // Render the current page in an offscreen canvas at scale 3 (~288 DPI),
+  // crop the user's selection, and return a JPEG data URL capped at
+  // ~2000 px on the long side (matches Claude Vision's sweet spot).
+  async highDpiCropDataUrl(rect, pageNumber, displayScale) {
+    const HIGH_SCALE = 3.0
+    const MAX_LONG_SIDE = 2000
+    const JPEG_QUALITY = 0.92
+
+    const page = await this.pdfDoc.getPage(pageNumber)
+    const viewport = page.getViewport({ scale: HIGH_SCALE })
+
+    const fullCanvas = document.createElement("canvas")
+    fullCanvas.width = viewport.width
+    fullCanvas.height = viewport.height
+    await page.render({ canvasContext: fullCanvas.getContext("2d"), viewport }).promise
+
+    const ratio = HIGH_SCALE / displayScale
+    const sx = Math.round(rect.x * ratio)
+    const sy = Math.round(rect.y * ratio)
+    const sw = Math.round(rect.w * ratio)
+    const sh = Math.round(rect.h * ratio)
+
+    let outW = sw
+    let outH = sh
+    const longSide = Math.max(sw, sh)
+    if (longSide > MAX_LONG_SIDE) {
+      const ds = MAX_LONG_SIDE / longSide
+      outW = Math.round(sw * ds)
+      outH = Math.round(sh * ds)
+    }
+
+    const cropCanvas = document.createElement("canvas")
+    cropCanvas.width = outW
+    cropCanvas.height = outH
+    cropCanvas.getContext("2d").drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
+    return cropCanvas.toDataURL("image/jpeg", JPEG_QUALITY)
   }
 
   drawRect(r) {
@@ -417,7 +465,9 @@ export default class extends Controller {
 
   // === OCR submission via Turbo Stream ===
 
-  async submitOcr(rectPts) {
+  async submitOcr(payload) {
+    // payload is either { rect_pts } (server-side render) or { crop_data }
+    // (browser-rendered fallback while the PDF is still uploading).
     console.log("submitOcr called")
     if (this.submitting) {
       console.log("OCR submission already in progress, skipping")
@@ -438,7 +488,7 @@ export default class extends Controller {
         body: JSON.stringify({
           ocr_request: {
             page_number: this.currentPage,
-            rect_pts: rectPts
+            ...payload
           }
         })
       })

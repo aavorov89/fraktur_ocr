@@ -8,26 +8,34 @@ module Documents
 
       @ocr_request = @document.ocr_requests.new(attrs)
 
-      if @ocr_request.save
-        # Don't enqueue OcrJob here — the Go render service will write a JPEG
-        # and call back into Internal::OcrRequestsController#render_done, which
-        # enqueues OcrJob.
-        RenderEnqueuer.enqueue(@ocr_request)
+      unless @ocr_request.save
+        return head(:unprocessable_entity)
+      end
 
-        respond_to do |format|
-          format.turbo_stream do
-            render turbo_stream: [
-              turbo_stream.update("ocr_panel",
-                partial: "documents/ocr_panel",
-                locals: { ocr_request: @ocr_request }),
-              turbo_stream.update("translation_panel",
-                partial: "documents/translation_panel",
-                locals: { ocr_request: @ocr_request })
-            ]
-          end
-        end
+      if (data_url = params.dig(:ocr_request, :crop_data)).present?
+        # Browser-side path: the JS controller already rendered the page at
+        # high DPI, cropped, and JPEG-encoded the bitmap. Skip the Go renderer
+        # entirely — write the file to disk and run OcrJob directly.
+        save_browser_crop(@ocr_request.id, data_url)
+        OcrJob.perform_later(@ocr_request.id)
       else
-        head :unprocessable_entity
+        # Server-side path: enqueue a river job, the Go renderer writes the
+        # JPEG and calls back into Internal::OcrRequestsController#render_done,
+        # which then enqueues OcrJob.
+        RenderEnqueuer.enqueue(@ocr_request)
+      end
+
+      respond_to do |format|
+        format.turbo_stream do
+          render turbo_stream: [
+            turbo_stream.update("ocr_panel",
+              partial: "documents/ocr_panel",
+              locals: { ocr_request: @ocr_request }),
+            turbo_stream.update("translation_panel",
+              partial: "documents/translation_panel",
+              locals: { ocr_request: @ocr_request })
+          ]
+        end
       end
     end
 
@@ -56,17 +64,29 @@ module Documents
 
     def ocr_request_attributes
       raw = params.require(:ocr_request).permit(:page_number, :target_language, rect_pts: [:x, :y, :w, :h])
-      rect = raw[:rect_pts]
-      return nil unless rect.is_a?(ActionController::Parameters) || rect.is_a?(Hash)
+      base = { page_number: raw[:page_number], target_language: raw[:target_language] }.compact
 
-      {
-        page_number: raw[:page_number],
-        target_language: raw[:target_language],
-        rect_x: rect[:x],
-        rect_y: rect[:y],
-        rect_w: rect[:w],
-        rect_h: rect[:h]
-      }.compact
+      rect = raw[:rect_pts]
+      if rect.is_a?(ActionController::Parameters) || rect.is_a?(Hash)
+        base.merge(rect_x: rect[:x], rect_y: rect[:y], rect_w: rect[:w], rect_h: rect[:h])
+      elsif params.dig(:ocr_request, :crop_data).present?
+        # crop_data path: rect columns stay null, the JPEG already encodes the
+        # cropped region.
+        base
+      else
+        nil
+      end
+    end
+
+    def save_browser_crop(id, data_url)
+      base64 = data_url.sub(/\Adata:.*?;base64,/, "")
+      bytes = Base64.strict_decode64(base64)
+      dir = ENV.fetch("RENDER_OUTPUT_DIR")
+      FileUtils.mkdir_p(dir)
+      path = File.join(dir, "#{id}.jpg")
+      tmp = "#{path}.tmp"
+      File.binwrite(tmp, bytes)
+      File.rename(tmp, path)
     end
   end
 end
