@@ -23,16 +23,18 @@ if ENV["OTEL_EXPORTER_OTLP_ENDPOINT"].present?
   # and burn the BetterStack quota.
   class SolidNoiseFilterSampler
     EXCLUDE_PREFIXES = %w[SolidCable:: SolidQueue:: SolidCache::].freeze
-    DROP = OpenTelemetry::SDK::Trace::Samplers::Result.new(
-      decision: OpenTelemetry::SDK::Trace::Samplers::Decision::DROP
-    )
 
     def initialize(delegate)
       @delegate = delegate
     end
 
     def should_sample?(trace_id:, parent_context:, links:, name:, kind:, attributes:)
-      return DROP if EXCLUDE_PREFIXES.any? { |p| name.start_with?(p) }
+      if EXCLUDE_PREFIXES.any? { |p| name.start_with?(p) }
+        return OpenTelemetry::SDK::Trace::Samplers::Result.new(
+          decision: OpenTelemetry::SDK::Trace::Samplers::Decision::DROP,
+          tracestate: OpenTelemetry::Trace.current_span(parent_context).context.tracestate
+        )
+      end
       @delegate.should_sample?(
         trace_id: trace_id, parent_context: parent_context, links: links,
         name: name, kind: kind, attributes: attributes
