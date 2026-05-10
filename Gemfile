@@ -43,6 +43,10 @@ gem "thruster", require: false
 gem "image_processing", "~> 1.2"
 
 group :development, :test do
+  # Auto-load .env into ENV at boot so PDF_ROOT_DIR, INTERNAL_AUTH_SECRET etc.
+  # are available without `set -a; source .env` in every tab.
+  gem "dotenv-rails"
+
   # See https://guides.rubyonrails.org/debugging_rails_applications.html#debugging-with-the-debug-gem
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 

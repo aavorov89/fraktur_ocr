@@ -31,6 +31,7 @@ export default class extends Controller {
     this.startPos = null
     this.rect = null
     this.submitting = false
+    this.pdfReadyForOcr = false
     this.thumbsLoaded = 0
     this.thumbsPerBatch = 50
     this.loadingThumbs = false
@@ -88,7 +89,10 @@ export default class extends Controller {
       this.updateToolbar()
       this.renderPage()
       this.generateThumbnails()
-      this.syncPdfToServer(forServer)
+      // Block region selection until the PDF is on the server, otherwise
+      // the Go renderer can't find the source file and the river job is
+      // cancelled with no feedback to the user.
+      await this.syncPdfToServer(forServer)
     } catch (err) {
       console.error("Failed to load PDF:", err)
       this.hideLoading()
@@ -99,12 +103,22 @@ export default class extends Controller {
   async syncPdfToServer(arrayBuffer) {
     try {
       this.showSyncing()
+      this.setOcrEnabled(false)
       const uploaded = await ensurePdfOnServer(this.documentIdValue, arrayBuffer)
       if (uploaded) console.log("PDF uploaded to server")
+      this.setOcrEnabled(true)
     } catch (err) {
       console.error("PDF server sync failed:", err)
+      // Leave OCR disabled — without a server-side PDF the renderer cannot work.
     } finally {
       this.hideSyncing()
+    }
+  }
+
+  setOcrEnabled(enabled) {
+    this.pdfReadyForOcr = enabled
+    if (this.hasOverlayCanvasTarget) {
+      this.overlayCanvasTarget.style.cursor = enabled ? "crosshair" : "wait"
     }
   }
 
@@ -331,6 +345,7 @@ export default class extends Controller {
 
   startDraw(e) {
     if (e.button !== 0) return
+    if (!this.pdfReadyForOcr) return
     this.startPos = this.getCanvasPos(e)
     this.drawing = true
     this.rect = null
