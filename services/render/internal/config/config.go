@@ -4,30 +4,37 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
-	DatabaseURL       string
-	PDFRootDir        string
-	RenderOutputDir   string
-	CacheDir          string
-	CacheMaxBytes     int64
-	CanonicalDPI      float64
-	MaxLongSidePx     int
-	JPEGQuality       int
-	WorkerConcurrency int
-	LogLevel          slog.Level
+	DatabaseURL        string
+	PDFRootDir         string
+	RenderOutputDir    string
+	CacheDir           string
+	CacheMaxBytes      int64
+	CanonicalDPI       float64
+	MaxLongSidePx      int
+	JPEGQuality        int
+	WorkerConcurrency  int
+	RailsBaseURL       string
+	InternalAuthSecret string
+	CallbackTimeout    time.Duration
+	LogLevel           slog.Level
 }
 
 func Load() (*Config, error) {
 	c := &Config{
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		PDFRootDir:      os.Getenv("PDF_ROOT_DIR"),
-		RenderOutputDir: getEnv("RENDER_OUTPUT_DIR", "/var/lib/fraktur/crops"),
-		CacheDir:        getEnv("CACHE_DIR", "/var/lib/fraktur/render-cache"),
+		DatabaseURL:        os.Getenv("DATABASE_URL"),
+		PDFRootDir:         os.Getenv("PDF_ROOT_DIR"),
+		RenderOutputDir:    getEnv("RENDER_OUTPUT_DIR", "/var/lib/fraktur/crops"),
+		CacheDir:           getEnv("CACHE_DIR", "/var/lib/fraktur/render-cache"),
+		RailsBaseURL:       os.Getenv("RAILS_BASE_URL"),
+		InternalAuthSecret: os.Getenv("INTERNAL_AUTH_SECRET"),
 	}
 
 	if c.DatabaseURL == "" {
@@ -35,6 +42,15 @@ func Load() (*Config, error) {
 	}
 	if c.PDFRootDir == "" {
 		return nil, errors.New("PDF_ROOT_DIR is required")
+	}
+	if c.RailsBaseURL == "" {
+		return nil, errors.New("RAILS_BASE_URL is required")
+	}
+	if u, err := url.Parse(c.RailsBaseURL); err != nil || u.Scheme == "" || u.Host == "" {
+		return nil, fmt.Errorf("RAILS_BASE_URL is not a valid URL: %q", c.RailsBaseURL)
+	}
+	if c.InternalAuthSecret == "" {
+		return nil, errors.New("INTERNAL_AUTH_SECRET is required")
 	}
 
 	var err error
@@ -51,6 +67,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if c.WorkerConcurrency, err = getEnvInt("WORKER_CONCURRENCY", 2); err != nil {
+		return nil, err
+	}
+	if c.CallbackTimeout, err = getEnvDuration("CALLBACK_TIMEOUT", 5*time.Second); err != nil {
 		return nil, err
 	}
 	c.LogLevel = parseLogLevel(getEnv("LOG_LEVEL", "info"))
@@ -70,7 +89,22 @@ func Load() (*Config, error) {
 	if c.WorkerConcurrency < 1 {
 		return nil, errors.New("WORKER_CONCURRENCY must be >= 1")
 	}
+	if c.CallbackTimeout <= 0 {
+		return nil, errors.New("CALLBACK_TIMEOUT must be > 0")
+	}
 	return c, nil
+}
+
+func getEnvDuration(key string, def time.Duration) (time.Duration, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return d, nil
 }
 
 func getEnv(key, def string) string {

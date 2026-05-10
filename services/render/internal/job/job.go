@@ -11,11 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/fraktur-ocr/services/render/internal/cache"
-	"github.com/fraktur-ocr/services/render/internal/notify"
+	"github.com/fraktur-ocr/services/render/internal/callback"
 	"github.com/fraktur-ocr/services/render/internal/render"
 )
 
@@ -40,7 +39,7 @@ type Worker struct {
 
 	PDFRootDir      string
 	RenderOutputDir string
-	Pool            *pgxpool.Pool
+	Callback        *callback.Client
 	Cache           *cache.Cache
 	Opts            render.Options
 	Logger          *slog.Logger
@@ -89,8 +88,9 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 
-	if err := notify.RenderDone(ctx, w.Pool, args.OCRRequestID); err != nil {
-		return err
+	// HTTP rather than pg_notify because pure-NOTIFY required a long-lived listener.
+	if err := w.Callback.RenderDone(ctx, args.OCRRequestID); err != nil {
+		return fmt.Errorf("notify Rails: %w", err)
 	}
 
 	w.Logger.Info("render_done",

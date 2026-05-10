@@ -10,7 +10,8 @@ module Documents
 
       if @ocr_request.save
         # Don't enqueue OcrJob here — the Go render service will write a JPEG
-        # and NOTIFY render_done, and the listener daemon will enqueue OcrJob.
+        # and call back into Internal::OcrRequestsController#render_done, which
+        # enqueues OcrJob.
         RenderEnqueuer.enqueue(@ocr_request)
 
         respond_to do |format|

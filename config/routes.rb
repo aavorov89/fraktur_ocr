@@ -28,4 +28,12 @@ Rails.application.routes.draw do
       end
     end
   end
+
+  namespace :internal do
+    resources :ocr_requests, only: [] do
+      member do
+        post :render_done
+      end
+    end
+  end
 end

@@ -14,6 +14,7 @@ import (
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
 	"github.com/fraktur-ocr/services/render/internal/cache"
+	"github.com/fraktur-ocr/services/render/internal/callback"
 	"github.com/fraktur-ocr/services/render/internal/config"
 	"github.com/fraktur-ocr/services/render/internal/job"
 	"github.com/fraktur-ocr/services/render/internal/render"
@@ -54,11 +55,13 @@ func run() error {
 	}
 	defer pool.Close()
 
+	cb := callback.NewClient(cfg.RailsBaseURL, cfg.InternalAuthSecret, cfg.CallbackTimeout)
+
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &job.Worker{
 		PDFRootDir:      cfg.PDFRootDir,
 		RenderOutputDir: cfg.RenderOutputDir,
-		Pool:            pool,
+		Callback:        cb,
 		Cache:           cch,
 		Opts: render.Options{
 			CanonicalDPI:  cfg.CanonicalDPI,

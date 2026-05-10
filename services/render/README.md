@@ -2,10 +2,12 @@
 
 A Go worker that renders PDF crops at a fixed high DPI (default 300) so that
 downstream OCR (Claude Vision) sees Fraktur text at full fidelity rather than
-at the user's display zoom. There is **no HTTP endpoint** — the service is
-strictly a [`river`](https://github.com/riverqueue/river) consumer of the
+at the user's display zoom. The service is a
+[`river`](https://github.com/riverqueue/river) consumer of the
 `render_pdf_crop` job kind. When a job finishes it writes a JPEG to disk and
-emits `NOTIFY render_done '<ocr_request_id>'` so Rails can react.
+then `POST`s `/internal/ocr_requests/<ocr_request_id>/render_done` on the
+Rails app (header-auth via `X-Internal-Auth: $INTERNAL_AUTH_SECRET`) so Rails
+can pick the crop up and forward it to Claude Vision.
 
 ## Configuration
 
@@ -20,6 +22,9 @@ emits `NOTIFY render_done '<ocr_request_id>'` so Rails can react.
 | `MAX_LONG_SIDE_PX`   | no       | `2000`                           | Output crop long-side cap                          |
 | `JPEG_QUALITY`       | no       | `92`                             | Output JPEG quality                                |
 | `WORKER_CONCURRENCY` | no       | `2`                              | Concurrent river workers                           |
+| `RAILS_BASE_URL`     | yes      | —                                | Base URL Rails is reachable at (e.g. `http://web:80`) |
+| `INTERNAL_AUTH_SECRET` | yes    | —                                | Shared secret sent as `X-Internal-Auth` to Rails   |
+| `CALLBACK_TIMEOUT`   | no       | `5s`                             | HTTP timeout for the Rails callback                |
 | `LOG_LEVEL`          | no       | `info`                           | `debug`, `info`, `warn`, or `error`                |
 
 ## Job payload
@@ -63,24 +68,26 @@ river migrate-up --database-url "$DATABASE_URL"
 mkdir -p /tmp/fraktur/{pdfs,crops,cache}
 cp some.pdf /tmp/fraktur/pdfs/
 
-# 4. Run the worker.
+# 4. From another shell, start a stub HTTP server to receive the callback.
+#    `nc` will print the request and exit on first connection — for repeated
+#    runs use a tiny Go stub instead.
+nc -l 3000
+
+# 5. Run the worker (point RAILS_BASE_URL at the stub above).
 PDF_ROOT_DIR=/tmp/fraktur/pdfs \
 RENDER_OUTPUT_DIR=/tmp/fraktur/crops \
 CACHE_DIR=/tmp/fraktur/cache \
+RAILS_BASE_URL=http://127.0.0.1:3000 \
+INTERNAL_AUTH_SECRET=local-dev-secret \
 go run .
-
-# 5. From another shell, listen for completion notifications.
-psql "$DATABASE_URL" -c "LISTEN render_done;"
-# Then, while psql is open, in a third shell:
-psql "$DATABASE_URL" -c \
-  "NOTIFY render_done, 'manual ping';"   # smoke-check the channel works.
 
 # 6. Enqueue a job.
 DATABASE_URL=$DATABASE_URL go run ./cmd/enqueue \
   -ocr=1 -pdf=some.pdf -page=1 -x=0 -y=0 -w=400 -h=200
 
-# 7. Crop should land at /tmp/fraktur/crops/1.jpg, and the LISTEN
-# session should print:   Asynchronous notification "render_done" with payload "1"
+# 7. Crop should land at /tmp/fraktur/crops/1.jpg, and the `nc` session
+# should show:   POST /internal/ocr_requests/1/render_done HTTP/1.1
+#                X-Internal-Auth: local-dev-secret
 ```
 
 If you'd rather skip `cmd/enqueue`, you can shove a row directly into
@@ -116,7 +123,7 @@ scope for unit tests. To exercise it manually, follow the Quickstart above.
 - **River migrations are run by Rails**, not this service. We just connect to
   the existing tables.
 - The service knows nothing about the `ocr_requests` table — it only touches
-  river's tables and emits the `render_done` NOTIFY channel.
+  river's tables and the Rails `/internal/*` callback endpoint.
 - The path resolver could later be swapped for an `Storage` interface that
   reads from S3/MinIO, but it intentionally is **not** abstracted yet (YAGNI).
 - Output is written `<ocr_request_id>.jpg.tmp` then `os.Rename`d into place
