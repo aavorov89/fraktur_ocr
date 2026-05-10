@@ -59,6 +59,7 @@ services:
       - HTTP_WRITE_TIMEOUT=600
       - HTTP_IDLE_TIMEOUT=300
       - X_SENDFILE_ENABLED=0
+      - LOGTAIL_SOURCE_TOKEN=${LOGTAIL_SOURCE_TOKEN:-}
     volumes:
       - ./storage:/rails/storage
       - ./log:/rails/log
@@ -100,6 +101,8 @@ services:
       - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
+      - LOGTAIL_SOURCE_TOKEN=${LOGTAIL_SOURCE_TOKEN:-}
+      - HEARTBEAT_URL_CLEANUP=${HEARTBEAT_URL_CLEANUP:-}
     volumes:
       - ./storage:/rails/storage
       - ./log:/rails/log
@@ -148,6 +151,28 @@ services:
         condition: service_healthy
       web:
         condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Sidecar that tails Docker stdout/stderr from the `render` and `worker`
+  # containers and ships JSON to BetterStack Logs. No-op without
+  # LOGTAIL_GO_SOURCE_TOKEN (Vector will start, fail the sink, and retry; the
+  # other services are unaffected).
+  vector:
+    image: timberio/vector:0.40.1-alpine
+    container_name: fraktur_ocr_vector
+    restart: always
+    environment:
+      - LOGTAIL_GO_SOURCE_TOKEN=${LOGTAIL_GO_SOURCE_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./vector.toml:/etc/vector/vector.toml:ro
+    depends_on:
+      - render
+      - worker
     logging:
       driver: "json-file"
       options:

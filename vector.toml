@@ -1,0 +1,25 @@
+# Vector config: scrape Docker container stdout/stderr and ship to BetterStack
+# Logs. Runs as a sidecar in docker-compose.vps.yml; mounts the host's
+# /var/run/docker.sock read-only.
+
+[sources.docker]
+type = "docker_logs"
+include_containers = ["fraktur_ocr_render", "fraktur_ocr_worker"]
+
+# Add structured metadata so log lines are searchable by container in BetterStack.
+[transforms.tag]
+type = "remap"
+inputs = ["docker"]
+source = '''
+.service = .container_name
+'''
+
+[sinks.betterstack]
+type = "http"
+inputs = ["tag"]
+uri = "https://in.logs.betterstack.com"
+encoding.codec = "json"
+compression = "gzip"
+auth.strategy = "bearer"
+auth.token = "${LOGTAIL_GO_SOURCE_TOKEN}"
+healthcheck.enabled = false

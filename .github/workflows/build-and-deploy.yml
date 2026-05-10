@@ -125,13 +125,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Copy compose file to VPS
+      - name: Copy compose + vector config to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: docker-compose.vps.yml
+          source: "docker-compose.vps.yml,vector.toml"
           target: /srv/fraktur_ocr/
           overwrite: true
 
