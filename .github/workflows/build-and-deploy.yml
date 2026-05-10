@@ -123,6 +123,18 @@ jobs:
     needs: [build-web, build-render]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose file to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: docker-compose.vps.yml
+          target: /srv/fraktur_ocr/
+          overwrite: true
+
       - name: Deploy to VPS over SSH
         uses: appleboy/ssh-action@v1.0.3
         env:
