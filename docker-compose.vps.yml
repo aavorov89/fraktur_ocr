@@ -165,6 +165,9 @@ services:
     image: timberio/vector:0.40.1-alpine
     container_name: fraktur_ocr_vector
     restart: always
+    # Override the image's default --config /etc/vector/vector.yaml (the bundled
+    # demo config) so Vector loads our TOML instead.
+    command: ["--config", "/etc/vector/vector.toml"]
     environment:
       - LOGTAIL_GO_SOURCE_TOKEN=${LOGTAIL_GO_SOURCE_TOKEN:-}
     volumes:
