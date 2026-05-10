@@ -65,3 +65,6 @@ Thumbs.db
 
 # Project specific - source extraction files
 *.tar.gz
+
+# Local-only docker-compose for dev infra (Postgres + Redis)
+/docker-compose-pg-only.yml
