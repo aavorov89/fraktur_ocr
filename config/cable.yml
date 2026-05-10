@@ -9,5 +9,7 @@ production:
   connects_to:
     database:
       writing: cable
-  polling_interval: 0.1.seconds
+  # 1 s polling is fast enough for Turbo Streams in this app; cuts DB poll
+  # load and OTel trace volume 10x vs the default 100 ms.
+  polling_interval: 1.second
   message_retention: 1.day
