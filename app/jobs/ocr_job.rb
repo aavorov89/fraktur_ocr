@@ -1,5 +1,6 @@
 require 'net/http'
 require 'json'
+require 'base64'
 
 class OcrJob < ApplicationJob
   queue_as :default
@@ -10,32 +11,30 @@ class OcrJob < ApplicationJob
     ocr_request = OcrRequest.find(ocr_request_id)
     ocr_request.update!(status: :processing)
 
-    # Extract base64 data and media type from data URL
-    data_url = ocr_request.crop_data
-    media_type = data_url[/data:(.*?);/, 1] || "image/png"
-    base64_data = data_url.sub(/\Adata:.*?;base64,/, "")
+    jpeg_path = File.join(self.class.render_output_dir, "#{ocr_request_id}.jpg")
+    raise "rendered crop not found at #{jpeg_path}" unless File.exist?(jpeg_path)
 
     api_key = Rails.application.credentials.dig(:anthropic, :api_key)
     raise "Anthropic API key not configured. Run: rails credentials:edit" if api_key.blank?
 
-    response = send_to_claude(api_key, base64_data, media_type)
+    base64_data = Base64.strict_encode64(File.binread(jpeg_path))
+    response = send_to_claude(api_key, base64_data, "image/jpeg")
 
     if response[:success]
-      ocr_request.update!(
-        status: :completed,
-        recognized_text: response[:text]
-      )
+      ocr_request.update!(status: :completed, recognized_text: response[:text])
+      File.delete(jpeg_path) rescue nil
       TextCorrectionJob.perform_later(ocr_request.id)
     else
-      ocr_request.update!(
-        status: :failed,
-        error_message: response[:error]
-      )
+      ocr_request.update!(status: :failed, error_message: response[:error])
     end
   rescue => e
     ocr_request = OcrRequest.find_by(id: ocr_request_id)
     ocr_request&.update(status: :failed, error_message: e.message)
     raise # Re-raise for retry mechanism
+  end
+
+  def self.render_output_dir
+    ENV.fetch("RENDER_OUTPUT_DIR", "/var/lib/fraktur/crops")
   end
 
   private

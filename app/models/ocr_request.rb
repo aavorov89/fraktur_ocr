@@ -4,7 +4,8 @@ class OcrRequest < ApplicationRecord
   enum :status, { pending: 0, processing: 1, completed: 2, failed: 3 }
 
   validates :page_number, presence: true, numericality: { greater_than: 0 }
-  validates :crop_data, presence: true
+  validates :rect_x, :rect_y, :rect_w, :rect_h, presence: true, numericality: true
+  validates :rect_w, :rect_h, numericality: { greater_than: 0 }
 
   # Broadcast updates to the document's Turbo Stream channel
   after_update_commit :broadcast_result

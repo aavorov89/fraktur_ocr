@@ -1,9 +1,9 @@
 # Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
 
 one:
-  access_key: MyString
-  name: MyString
+  access_key: key-one
+  name: User One
 
 two:
-  access_key: MyString
-  name: MyString
+  access_key: key-two
+  name: User Two

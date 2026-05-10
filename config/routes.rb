@@ -18,9 +18,21 @@ Rails.application.routes.draw do
   root "documents#new"
 
   resources :documents, only: [:new, :create, :show] do
+    member do
+      put :pdf, action: :upload_pdf, as: :upload_pdf
+      match :pdf, action: :pdf_status, via: :head, as: :pdf_status
+    end
     resources :ocr_requests, only: [:create], module: :documents do
       member do
         patch :update_language
+      end
+    end
+  end
+
+  namespace :internal do
+    resources :ocr_requests, only: [] do
+      member do
+        post :render_done
       end
     end
   end
