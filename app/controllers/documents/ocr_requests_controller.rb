@@ -2,10 +2,16 @@ module Documents
   class OcrRequestsController < ApplicationController
     def create
       @document = Document.find(params[:document_id])
-      @ocr_request = @document.ocr_requests.new(ocr_request_params)
+
+      attrs = ocr_request_attributes
+      return head(:unprocessable_entity) if attrs.nil?
+
+      @ocr_request = @document.ocr_requests.new(attrs)
 
       if @ocr_request.save
-        OcrJob.perform_later(@ocr_request.id)
+        # Don't enqueue OcrJob here — the Go render service will write a JPEG
+        # and NOTIFY render_done, and the listener daemon will enqueue OcrJob.
+        RenderEnqueuer.enqueue(@ocr_request)
 
         respond_to do |format|
           format.turbo_stream do
@@ -47,8 +53,19 @@ module Documents
 
     private
 
-    def ocr_request_params
-      params.require(:ocr_request).permit(:page_number, :crop_data, :target_language)
+    def ocr_request_attributes
+      raw = params.require(:ocr_request).permit(:page_number, :target_language, rect_pts: [:x, :y, :w, :h])
+      rect = raw[:rect_pts]
+      return nil unless rect.is_a?(ActionController::Parameters) || rect.is_a?(Hash)
+
+      {
+        page_number: raw[:page_number],
+        target_language: raw[:target_language],
+        rect_x: rect[:x],
+        rect_y: rect[:y],
+        rect_w: rect[:w],
+        rect_h: rect[:h]
+      }.compact
     end
   end
 end

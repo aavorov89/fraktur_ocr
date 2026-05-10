@@ -1,6 +1,22 @@
 version: '3.8'
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: fraktur_ocr_db
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-fraktur_ocr_production}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   web:
     build:
       context: .
@@ -19,6 +35,9 @@ services:
       - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
       - RAILS_HOSTNAME=${RAILS_HOSTNAME:-localhost}
       - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraktur_ocr_production}
+      - PDF_ROOT_DIR=/var/lib/fraktur/pdfs
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
       # Puma worker timeout for large file uploads (10 minutes)
       - PUMA_WORKER_TIMEOUT=600
       # Thruster timeout configuration for large file uploads (10 minutes)
@@ -27,16 +46,11 @@ services:
       - HTTP_IDLE_TIMEOUT=300
       # Disable Thruster's X-Sendfile so X-Accel-Redirect passes through to nginx
       - X_SENDFILE_ENABLED=0
-      # Add any API keys or secrets here
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - DEEPL_API_KEY=${DEEPL_API_KEY}
     volumes:
-      # Persist SQLite databases and Active Storage files
       - ./storage:/rails/storage
-      # Persist application logs
       - ./log:/rails/log
-      # Optional: persist tmp cache for better performance
-      # - ./tmp:/rails/tmp
+      - pdfs:/var/lib/fraktur/pdfs
+      - crops:/var/lib/fraktur/crops
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/up"]
       interval: 30s
@@ -59,7 +73,10 @@ services:
     labels:
       - "com.docker.compose.project=fraktur_ocr"
     depends_on:
-      - worker
+      db:
+        condition: service_healthy
+      worker:
+        condition: service_started
 
   worker:
     build:
@@ -75,15 +92,17 @@ services:
       - RAILS_LOG_TO_STDOUT=true
       - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
       - RAILS_MAX_THREADS=${RAILS_MAX_THREADS:-5}
-      # Add any API keys or secrets here
-      # - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # - DEEPL_API_KEY=${DEEPL_API_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraktur_ocr_production}
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
     volumes:
-      # Share the same volumes as web for database access
       - ./storage:/rails/storage
       - ./public:/rails/public
       - ./log:/rails/log
+      - crops:/var/lib/fraktur/crops
     command: bin/rails solid_queue:start
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "pgrep -f solid_queue || exit 1"]
       interval: 30s
@@ -105,6 +124,69 @@ services:
         max-file: "3"
     labels:
       - "com.docker.compose.project=fraktur_ocr"
+
+  render_listener:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUBY_VERSION: 3.2.2
+    image: fraktur_ocr:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_render_listener
+    restart: always
+    environment:
+      - RAILS_ENV=production
+      - RAILS_LOG_TO_STDOUT=true
+      - RAILS_MASTER_KEY=${RAILS_MASTER_KEY}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraktur_ocr_production}
+      - RENDER_DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraktur_ocr_production}
+    command: bin/render_listener
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  render:
+    build:
+      context: ./services/render
+    image: fraktur_render:${IMAGE_TAG:-latest}
+    container_name: fraktur_ocr_render
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-fraktur_ocr_production}
+      - PDF_ROOT_DIR=/var/lib/fraktur/pdfs
+      - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
+      - CACHE_DIR=/var/lib/fraktur/render-cache
+    volumes:
+      - pdfs:/var/lib/fraktur/pdfs
+      - crops:/var/lib/fraktur/crops
+      - render_cache:/var/lib/fraktur/render-cache
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+    driver: local
+  pdfs:
+    driver: local
+  crops:
+    driver: local
+  render_cache:
+    driver: local
 
 networks:
   default:

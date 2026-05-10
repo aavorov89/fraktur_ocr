@@ -1,6 +1,7 @@
 import { Controller } from "@hotwired/stimulus"
 import * as pdfjsLib from "pdfjs-dist"
 import { consumePendingPdf, storePdf, getPdf } from "services/pdf_storage"
+import { ensurePdfOnServer } from "services/pdf_sync"
 
 // Set pdf.js worker URL
 pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -75,6 +76,9 @@ export default class extends Controller {
 
   async openPdfData(arrayBuffer) {
     try {
+      // pdfjsLib transfers the buffer; clone before passing so we can also
+      // upload it to the server without re-reading from IndexedDB.
+      const forServer = arrayBuffer.slice(0)
       const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
 
       this.pdfDoc = await loadingTask.promise
@@ -84,10 +88,40 @@ export default class extends Controller {
       this.updateToolbar()
       this.renderPage()
       this.generateThumbnails()
+      this.syncPdfToServer(forServer)
     } catch (err) {
       console.error("Failed to load PDF:", err)
       this.hideLoading()
       this.showMissing()
+    }
+  }
+
+  async syncPdfToServer(arrayBuffer) {
+    try {
+      this.showSyncing()
+      const uploaded = await ensurePdfOnServer(this.documentIdValue, arrayBuffer)
+      if (uploaded) console.log("PDF uploaded to server")
+    } catch (err) {
+      console.error("PDF server sync failed:", err)
+    } finally {
+      this.hideSyncing()
+    }
+  }
+
+  showSyncing() {
+    if (this.syncIndicator) return
+    const el = document.createElement("div")
+    el.className = "pdf-sync-indicator"
+    el.textContent = "syncing PDF…"
+    el.style.cssText = "position:absolute;top:8px;right:8px;padding:4px 10px;border-radius:4px;background:rgba(0,0,0,0.6);color:white;font-size:11px;z-index:10;"
+    this.element.appendChild(el)
+    this.syncIndicator = el
+  }
+
+  hideSyncing() {
+    if (this.syncIndicator) {
+      this.syncIndicator.remove()
+      this.syncIndicator = null
     }
   }
 
@@ -327,27 +361,17 @@ export default class extends Controller {
       return
     }
 
-    const mainCanvas = this.mainCanvasTarget
-    const overlay = this.overlayCanvasTarget
-    const scaleX = mainCanvas.width / overlay.width
-    const scaleY = mainCanvas.height / overlay.height
-    const sx = Math.round(this.rect.x * scaleX)
-    const sy = Math.round(this.rect.y * scaleY)
-    const sw = Math.round(this.rect.w * scaleX)
-    const sh = Math.round(this.rect.h * scaleY)
+    // PDF.js renders at viewport.scale = this.scale, so 1 viewport pixel
+    // corresponds to 1 / this.scale PDF user-space points. Origin matches:
+    // both PDF.js viewport and the Go renderer treat top-left as (0, 0).
+    const rectPts = {
+      x: this.rect.x / this.scale,
+      y: this.rect.y / this.scale,
+      w: this.rect.w / this.scale,
+      h: this.rect.h / this.scale
+    }
 
-    const cropCanvas = document.createElement("canvas")
-    cropCanvas.width = sw
-    cropCanvas.height = sh
-    const cropCtx = cropCanvas.getContext("2d")
-    cropCtx.drawImage(
-      mainCanvas,
-      sx, sy, sw, sh,
-      0, 0, sw, sh
-    )
-
-    const dataUrl = cropCanvas.toDataURL("image/png")
-    this.submitOcr(dataUrl)
+    this.submitOcr(rectPts)
 
     setTimeout(() => {
       this.rect = null
@@ -378,7 +402,7 @@ export default class extends Controller {
 
   // === OCR submission via Turbo Stream ===
 
-  async submitOcr(cropDataUrl) {
+  async submitOcr(rectPts) {
     console.log("submitOcr called")
     if (this.submitting) {
       console.log("OCR submission already in progress, skipping")
@@ -399,7 +423,7 @@ export default class extends Controller {
         body: JSON.stringify({
           ocr_request: {
             page_number: this.currentPage,
-            crop_data: cropDataUrl
+            rect_pts: rectPts
           }
         })
       })
