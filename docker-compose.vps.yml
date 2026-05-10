@@ -60,6 +60,9 @@ services:
       - HTTP_IDLE_TIMEOUT=300
       - X_SENDFILE_ENABLED=0
       - LOGTAIL_SOURCE_TOKEN=${LOGTAIL_SOURCE_TOKEN:-}
+      - OTEL_SERVICE_NAME=fraktur-rails
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
     volumes:
       - ./storage:/rails/storage
       - ./log:/rails/log
@@ -103,6 +106,9 @@ services:
       - RENDER_OUTPUT_DIR=/var/lib/fraktur/crops
       - LOGTAIL_SOURCE_TOKEN=${LOGTAIL_SOURCE_TOKEN:-}
       - HEARTBEAT_URL_CLEANUP=${HEARTBEAT_URL_CLEANUP:-}
+      - OTEL_SERVICE_NAME=fraktur-rails-worker
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
     volumes:
       - ./storage:/rails/storage
       - ./log:/rails/log
@@ -142,6 +148,9 @@ services:
       - CACHE_DIR=/var/lib/fraktur/render-cache
       - RAILS_BASE_URL=http://web:80
       - INTERNAL_AUTH_SECRET=${INTERNAL_AUTH_SECRET}
+      - OTEL_SERVICE_NAME=fraktur-render
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
     volumes:
       - pdfs:/var/lib/fraktur/pdfs
       - crops:/var/lib/fraktur/crops

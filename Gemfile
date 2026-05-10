@@ -45,6 +45,12 @@ gem "image_processing", "~> 1.2"
 # Ship Rails logs to BetterStack (Logs) when LOGTAIL_SOURCE_TOKEN is set.
 gem "logtail-rails", "~> 0.2"
 
+# OpenTelemetry traces shipped to BetterStack Telemetry via OTLP/HTTP.
+# Configured by OTEL_EXPORTER_OTLP_* env vars; see config/initializers/opentelemetry.rb.
+gem "opentelemetry-sdk", "~> 1.5"
+gem "opentelemetry-exporter-otlp", "~> 0.27"
+gem "opentelemetry-instrumentation-all", "~> 0.65"
+
 group :development, :test do
   # Auto-load .env into ENV at boot so PDF_ROOT_DIR, INTERNAL_AUTH_SECRET etc.
   # are available without `set -a; source .env` in every tab.

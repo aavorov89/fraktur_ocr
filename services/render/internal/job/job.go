@@ -12,6 +12,11 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/fraktur-ocr/services/render/internal/cache"
 	"github.com/fraktur-ocr/services/render/internal/callback"
@@ -30,6 +35,9 @@ type RenderArgs struct {
 	PDFPath      string  `json:"pdf_path"`
 	Page         int     `json:"page"`
 	RectPts      RectPts `json:"rect_pts"`
+	// Trace carries the W3C trace context Rails injected when enqueueing.
+	// Empty for jobs that don't originate from a traced request.
+	Trace map[string]string `json:"trace,omitempty"`
 }
 
 func (RenderArgs) Kind() string { return "render_pdf_crop" }
@@ -49,8 +57,27 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 	args := j.Args
 	start := time.Now()
 
+	// Continue the Rails-originated trace. If args.Trace is empty (e.g. job
+	// enqueued from outside the Rails pipeline) the propagator returns ctx
+	// unchanged and we start a fresh root span.
+	if len(args.Trace) > 0 {
+		ctx = otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(args.Trace))
+	}
+	tracer := otel.Tracer("render")
+	ctx, span := tracer.Start(ctx, "render_pdf_crop",
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.Int64("ocr_request_id", args.OCRRequestID),
+			attribute.String("pdf_path", args.PDFPath),
+			attribute.Int("page", args.Page),
+		),
+	)
+	defer span.End()
+
 	pdfAbs, err := resolveSafePath(w.PDFRootDir, args.PDFPath)
 	if err != nil {
+		span.SetStatus(codes.Error, "bad pdf path")
+		span.RecordError(err)
 		w.Logger.Warn("rejecting job: bad pdf path",
 			"ocr_request_id", args.OCRRequestID, "pdf_path", args.PDFPath, "err", err.Error())
 		return river.JobCancel(err)
@@ -71,25 +98,39 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 
 	pageImg, cacheHit, err := render.PageBitmap(ctx, w.Cache, pdfAbs, args.Page, w.Opts)
 	if err != nil {
+		span.SetStatus(codes.Error, "page bitmap")
+		span.RecordError(err)
 		return fmt.Errorf("page bitmap: %w", err)
 	}
+	span.SetAttributes(attribute.Bool("cache_hit", cacheHit))
 
 	rect := render.RectPts{X: args.RectPts.X, Y: args.RectPts.Y, W: args.RectPts.W, H: args.RectPts.H}
 	jpegBytes, finalRect, err := render.CropAndEncode(pageImg, rect, w.Opts)
 	if err != nil {
+		span.SetStatus(codes.Error, "crop+encode")
+		span.RecordError(err)
 		return fmt.Errorf("crop+encode: %w", err)
 	}
+	span.SetAttributes(
+		attribute.Int("output_w", finalRect.Dx()),
+		attribute.Int("output_h", finalRect.Dy()),
+		attribute.Int("output_bytes", len(jpegBytes)),
+	)
 
 	if err := os.MkdirAll(w.RenderOutputDir, 0o755); err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("mkdir output dir: %w", err)
 	}
 	outPath := filepath.Join(w.RenderOutputDir, strconv.FormatInt(args.OCRRequestID, 10)+".jpg")
 	if err := writeAtomic(outPath, jpegBytes); err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("write output: %w", err)
 	}
 
 	// HTTP rather than pg_notify because pure-NOTIFY required a long-lived listener.
 	if err := w.Callback.RenderDone(ctx, args.OCRRequestID); err != nil {
+		span.SetStatus(codes.Error, "callback")
+		span.RecordError(err)
 		return fmt.Errorf("notify Rails: %w", err)
 	}
 

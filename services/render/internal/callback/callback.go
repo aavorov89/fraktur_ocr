@@ -9,6 +9,9 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Client struct {
@@ -36,6 +39,10 @@ func (c *Client) RenderDone(ctx context.Context, ocrRequestID int64) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Internal-Auth", c.Secret)
+
+	// Carry the current trace into Rails so the inbound /internal/* request
+	// continues the same trace.
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

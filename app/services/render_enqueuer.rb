@@ -9,6 +9,7 @@ class RenderEnqueuer
   # render side; Rails only handles the post-render OcrJob via the listener.
   def self.enqueue(ocr_request)
     args = build_args(ocr_request)
+    inject_trace_context!(args)
 
     ActiveRecord::Base.connection.exec_query(
       <<~SQL,
@@ -33,5 +34,16 @@ class RenderEnqueuer
         h: ocr_request.rect_h.to_f
       }
     }
+  end
+
+  # Capture the active OTel trace context as a W3C carrier and embed it in
+  # the job args so the Go renderer can continue the trace. No-op when OTel
+  # isn't loaded (dev/test) or when there's no active span.
+  def self.inject_trace_context!(args)
+    return unless defined?(OpenTelemetry)
+
+    carrier = {}
+    OpenTelemetry.propagation.inject(carrier)
+    args[:trace] = carrier if carrier.any?
   end
 end

@@ -18,6 +18,7 @@ import (
 	"github.com/fraktur-ocr/services/render/internal/config"
 	"github.com/fraktur-ocr/services/render/internal/job"
 	"github.com/fraktur-ocr/services/render/internal/render"
+	"github.com/fraktur-ocr/services/render/internal/tracing"
 )
 
 func main() {
@@ -48,6 +49,20 @@ func run() error {
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	otelServiceName := os.Getenv("OTEL_SERVICE_NAME")
+	if otelServiceName == "" {
+		otelServiceName = "fraktur-render"
+	}
+	otelShutdown, err := tracing.Init(rootCtx, otelServiceName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = otelShutdown(shutCtx)
+	}()
 
 	pool, err := pgxpool.New(rootCtx, cfg.DatabaseURL)
 	if err != nil {
