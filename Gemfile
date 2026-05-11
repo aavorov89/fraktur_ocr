@@ -51,6 +51,11 @@ gem "opentelemetry-sdk", "~> 1.5"
 gem "opentelemetry-exporter-otlp", "~> 0.27"
 gem "opentelemetry-instrumentation-all", "~> 0.65"
 
+# Exception tracking via BetterStack Errors (Sentry-compatible DSN). No-op
+# unless SENTRY_DSN is set; see config/initializers/sentry.rb.
+gem "sentry-ruby", "~> 5.21"
+gem "sentry-rails", "~> 5.21"
+
 group :development, :test do
   # Auto-load .env into ENV at boot so PDF_ROOT_DIR, INTERNAL_AUTH_SECRET etc.
   # are available without `set -a; source .env` in every tab.
