@@ -5,6 +5,7 @@ ru:
 
   header:
     logout: "Выйти"
+    sync: "Синхр."
 
   login:
     title: "Fraktur Reader"

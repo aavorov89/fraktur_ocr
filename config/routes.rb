@@ -36,4 +36,6 @@ Rails.application.routes.draw do
       end
     end
   end
+
+  post "diagnostics/boom", to: "diagnostics#boom", as: :diagnostics_boom
 end

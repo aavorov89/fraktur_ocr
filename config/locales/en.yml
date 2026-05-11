@@ -5,6 +5,7 @@ en:
 
   header:
     logout: "Logout"
+    sync: "Sync"
 
   login:
     title: "Fraktur Reader"
