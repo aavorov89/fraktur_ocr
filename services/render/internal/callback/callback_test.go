@@ -2,6 +2,8 @@ package callback
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,7 @@ import (
 func TestRenderDoneSuccess(t *testing.T) {
 	var hits int32
 	var gotPath, gotMethod, gotAuth, gotContentType string
+	var gotBody []byte
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
@@ -20,12 +23,14 @@ func TestRenderDoneSuccess(t *testing.T) {
 		gotMethod = r.Method
 		gotAuth = r.Header.Get("X-Internal-Auth")
 		gotContentType = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "s3cret", 2*time.Second)
-	if err := c.RenderDone(context.Background(), 42); err != nil {
+	body := RenderDoneBody{RenderMs: 123, PDFPageCount: 7, RenderDPI: 300}
+	if err := c.RenderDone(context.Background(), 42, body); err != nil {
 		t.Fatalf("RenderDone returned error: %v", err)
 	}
 
@@ -44,6 +49,20 @@ func TestRenderDoneSuccess(t *testing.T) {
 	if gotContentType != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", gotContentType)
 	}
+
+	var decoded map[string]int
+	if err := json.Unmarshal(gotBody, &decoded); err != nil {
+		t.Fatalf("body is not valid JSON object: %v (body=%q)", err, string(gotBody))
+	}
+	if decoded["render_ms"] != 123 {
+		t.Errorf("render_ms = %d, want 123", decoded["render_ms"])
+	}
+	if decoded["pdf_page_count"] != 7 {
+		t.Errorf("pdf_page_count = %d, want 7", decoded["pdf_page_count"])
+	}
+	if decoded["render_dpi"] != 300 {
+		t.Errorf("render_dpi = %d, want 300", decoded["render_dpi"])
+	}
 }
 
 func TestRenderDoneNon2xx(t *testing.T) {
@@ -53,7 +72,7 @@ func TestRenderDoneNon2xx(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "s3cret", 2*time.Second)
-	err := c.RenderDone(context.Background(), 7)
+	err := c.RenderDone(context.Background(), 7, RenderDoneBody{})
 	if err == nil {
 		t.Fatal("expected error for 500 response, got nil")
 	}
@@ -70,7 +89,7 @@ func TestRenderDoneTimeout(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, "s3cret", 1*time.Millisecond)
-	err := c.RenderDone(context.Background(), 1)
+	err := c.RenderDone(context.Background(), 1, RenderDoneBody{})
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}

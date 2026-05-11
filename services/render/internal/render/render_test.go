@@ -39,12 +39,15 @@ func TestRenderCropProducesValidJPEG(t *testing.T) {
 	opts := Options{CanonicalDPI: 300, MaxLongSidePx: 2000, JPEGQuality: 92}
 
 	ctx := context.Background()
-	pageImg, hit, err := PageBitmap(ctx, c, pdfPath, 1, opts)
+	pageImg, pageCount, hit, err := PageBitmap(ctx, c, pdfPath, 1, opts)
 	if err != nil {
 		t.Fatalf("PageBitmap: %v", err)
 	}
 	if hit {
 		t.Fatal("expected cache miss on first render")
+	}
+	if pageCount != 1 {
+		t.Errorf("page count = %d, want 1", pageCount)
 	}
 
 	// 200x100 pt rectangle near the top-left → at 300dpi → ~833x416 px.
@@ -77,7 +80,7 @@ func TestRenderCropProducesValidJPEG(t *testing.T) {
 	}
 
 	// Second call must hit cache.
-	if _, hit, err := PageBitmap(ctx, c, pdfPath, 1, opts); err != nil || !hit {
+	if _, _, hit, err := PageBitmap(ctx, c, pdfPath, 1, opts); err != nil || !hit {
 		t.Errorf("expected cache hit on second call, got hit=%v err=%v", hit, err)
 	}
 }
@@ -91,7 +94,7 @@ func TestDownsampleEnforcesLongSideCap(t *testing.T) {
 	defer c.Close()
 
 	opts := Options{CanonicalDPI: 300, MaxLongSidePx: 500, JPEGQuality: 80}
-	pageImg, _, err := PageBitmap(context.Background(), c, pdfPath, 1, opts)
+	pageImg, _, _, err := PageBitmap(context.Background(), c, pdfPath, 1, opts)
 	if err != nil {
 		t.Fatalf("PageBitmap: %v", err)
 	}

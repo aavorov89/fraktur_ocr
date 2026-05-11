@@ -96,13 +96,16 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 		return river.JobCancel(fmt.Errorf("pdf path is a directory: %s", args.PDFPath))
 	}
 
-	pageImg, cacheHit, err := render.PageBitmap(ctx, w.Cache, pdfAbs, args.Page, w.Opts)
+	pageImg, pdfPageCount, cacheHit, err := render.PageBitmap(ctx, w.Cache, pdfAbs, args.Page, w.Opts)
 	if err != nil {
 		span.SetStatus(codes.Error, "page bitmap")
 		span.RecordError(err)
 		return fmt.Errorf("page bitmap: %w", err)
 	}
-	span.SetAttributes(attribute.Bool("cache_hit", cacheHit))
+	span.SetAttributes(
+		attribute.Bool("cache_hit", cacheHit),
+		attribute.Int("pdf_page_count", pdfPageCount),
+	)
 
 	rect := render.RectPts{X: args.RectPts.X, Y: args.RectPts.Y, W: args.RectPts.W, H: args.RectPts.H}
 	jpegBytes, finalRect, err := render.CropAndEncode(pageImg, rect, w.Opts)
@@ -127,8 +130,17 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 		return fmt.Errorf("write output: %w", err)
 	}
 
+	renderMs := time.Since(start).Milliseconds()
+
 	// HTTP rather than pg_notify because pure-NOTIFY required a long-lived listener.
-	if err := w.Callback.RenderDone(ctx, args.OCRRequestID); err != nil {
+	// The body carries timing + PDF metadata for the BetterStack Warehouse
+	// analytics pipeline on the Rails side.
+	cbBody := callback.RenderDoneBody{
+		RenderMs:     int(renderMs),
+		PDFPageCount: pdfPageCount,
+		RenderDPI:    int(w.Opts.CanonicalDPI),
+	}
+	if err := w.Callback.RenderDone(ctx, args.OCRRequestID, cbBody); err != nil {
 		span.SetStatus(codes.Error, "callback")
 		span.RecordError(err)
 		return fmt.Errorf("notify Rails: %w", err)
@@ -139,10 +151,11 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 		"page", args.Page,
 		"pdf_path", args.PDFPath,
 		"cache_hit", cacheHit,
-		"render_ms", time.Since(start).Milliseconds(),
+		"render_ms", renderMs,
 		"output_bytes", len(jpegBytes),
 		"output_w", finalRect.Dx(),
 		"output_h", finalRect.Dy(),
+		"pdf_page_count", pdfPageCount,
 	)
 	return nil
 }

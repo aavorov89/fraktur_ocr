@@ -3,6 +3,7 @@ package callback
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,17 @@ type Client struct {
 	HTTP    *http.Client
 }
 
+// RenderDoneBody is the JSON payload sent to Rails after a successful
+// render. Rails persists these into ocr_requests.metrics for the
+// BetterStack Warehouse analytics pipeline. Fields are advisory: a Rails
+// build older than this contract will tolerate any subset, and an
+// older Go build sending `{}` remains a valid callback.
+type RenderDoneBody struct {
+	RenderMs     int `json:"render_ms"`
+	PDFPageCount int `json:"pdf_page_count"`
+	RenderDPI    int `json:"render_dpi"`
+}
+
 func NewClient(baseURL, secret string, timeout time.Duration) *Client {
 	return &Client{
 		BaseURL: baseURL,
@@ -28,12 +40,18 @@ func NewClient(baseURL, secret string, timeout time.Duration) *Client {
 	}
 }
 
-func (c *Client) RenderDone(ctx context.Context, ocrRequestID int64) error {
+func (c *Client) RenderDone(ctx context.Context, ocrRequestID int64, body RenderDoneBody) error {
 	u, err := url.JoinPath(c.BaseURL, "/internal/ocr_requests", strconv.FormatInt(ocrRequestID, 10), "/render_done")
 	if err != nil {
 		return fmt.Errorf("build callback URL: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader([]byte("{}")))
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshal callback body: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("build callback request: %w", err)
 	}

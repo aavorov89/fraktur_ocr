@@ -3,9 +3,21 @@ require 'json'
 require 'base64'
 
 class OcrJob < ApplicationJob
+  MODEL = "claude-sonnet-4-20250514".freeze
+
   queue_as :default
 
-  retry_on StandardError, wait: :polynomially_longer, attempts: 3
+  # Retry up to 3 times on any error; the block form fires only after the
+  # configured attempts have been exhausted, which is the correct hook
+  # point for emitting a single terminal-failure warehouse event.
+  retry_on StandardError, wait: :polynomially_longer, attempts: 3 do |job, error|
+    BetterStackWarehouse::Pipeline.flush(
+      job.arguments.first,
+      status:        :failed,
+      failure_stage: :ocr,
+      error_class:   error.class.name
+    )
+  end
 
   def perform(ocr_request_id)
     ocr_request = OcrRequest.find(ocr_request_id)
@@ -17,8 +29,21 @@ class OcrJob < ApplicationJob
     api_key = Rails.application.credentials.dig(:anthropic, :api_key)
     raise "Anthropic API key not configured. Run: rails credentials:edit" if api_key.blank?
 
-    base64_data = Base64.strict_encode64(File.binread(jpeg_path))
-    response = send_to_claude(api_key, base64_data, "image/jpeg")
+    image_bytes = File.binread(jpeg_path)
+    base64_data = Base64.strict_encode64(image_bytes)
+
+    response = ActiveSupport::Notifications.instrument(
+      "fraktur_ocr.ocr",
+      ocr_request_id:   ocr_request.id,
+      model:            MODEL,
+      image_size_bytes: image_bytes.bytesize
+    ) do |payload|
+      result = send_to_claude(api_key, base64_data, "image/jpeg")
+      payload[:tokens_in]  = result[:tokens_in]
+      payload[:tokens_out] = result[:tokens_out]
+      payload[:status]     = result[:success] ? "success" : "error"
+      result
+    end
 
     if response[:success]
       ocr_request.update!(status: :completed, recognized_text: response[:text])
@@ -52,7 +77,7 @@ class OcrJob < ApplicationJob
     request["anthropic-version"] = "2023-06-01"
 
     request.body = {
-      model: "claude-sonnet-4-20250514",
+      model: MODEL,
       max_tokens: 4096,
       messages: [
         {
@@ -93,7 +118,12 @@ class OcrJob < ApplicationJob
         &.map { |block| block["text"] }
         &.join("\n")
 
-      { success: true, text: text }
+      {
+        success:    true,
+        text:       text,
+        tokens_in:  body.dig("usage", "input_tokens"),
+        tokens_out: body.dig("usage", "output_tokens")
+      }
     else
       error_msg = body.dig("error", "message") || "API error: #{response.code}"
       { success: false, error: error_msg }

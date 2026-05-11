@@ -2,9 +2,18 @@ require 'net/http'
 require 'json'
 
 class TextCorrectionJob < ApplicationJob
+  MODEL = "gpt-4o".freeze
+
   queue_as :default
 
-  retry_on StandardError, wait: :polynomially_longer, attempts: 3
+  retry_on StandardError, wait: :polynomially_longer, attempts: 3 do |job, error|
+    BetterStackWarehouse::Pipeline.flush(
+      job.arguments.first,
+      status:        :failed,
+      failure_stage: :correction,
+      error_class:   error.class.name
+    )
+  end
 
   def perform(ocr_request_id)
     ocr_request = OcrRequest.find(ocr_request_id)
@@ -24,7 +33,17 @@ class TextCorrectionJob < ApplicationJob
       return
     end
 
-    response = send_to_gpt4o(api_key, ocr_request.recognized_text)
+    response = ActiveSupport::Notifications.instrument(
+      "fraktur_ocr.correction",
+      ocr_request_id: ocr_request.id,
+      model:          MODEL
+    ) do |payload|
+      result = send_to_gpt4o(api_key, ocr_request.recognized_text)
+      payload[:tokens_in]  = result[:tokens_in]
+      payload[:tokens_out] = result[:tokens_out]
+      payload[:status]     = result[:success] ? "success" : "error"
+      result
+    end
 
     if response[:success]
       ocr_request.update!(corrected_text: response[:text], correction_error: nil)
@@ -56,7 +75,7 @@ class TextCorrectionJob < ApplicationJob
     request["Authorization"] = "Bearer #{api_key}"
 
     request.body = {
-      model: "gpt-4o",
+      model: MODEL,
       temperature: 0.3,
       messages: [
         {
@@ -91,7 +110,12 @@ class TextCorrectionJob < ApplicationJob
 
     if response.code.to_i == 200
       corrected_text = body.dig("choices", 0, "message", "content")
-      { success: true, text: corrected_text }
+      {
+        success:    true,
+        text:       corrected_text,
+        tokens_in:  body.dig("usage", "prompt_tokens"),
+        tokens_out: body.dig("usage", "completion_tokens")
+      }
     else
       error_msg = body.dig("error", "message") || "OpenAI API error: #{response.code}"
       { success: false, error: error_msg }

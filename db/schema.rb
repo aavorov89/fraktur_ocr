@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_05_10_184902) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_11_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -83,6 +83,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_05_10_184902) do
     t.text "crop_data"
     t.integer "document_id", null: false
     t.text "error_message"
+    t.jsonb "metrics", default: {}, null: false
     t.integer "page_number", null: false
     t.text "recognized_text"
     t.decimal "rect_h", precision: 10, scale: 4

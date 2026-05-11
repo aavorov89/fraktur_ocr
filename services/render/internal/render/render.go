@@ -31,43 +31,59 @@ type RectPts struct {
 }
 
 // PageBitmap renders page (1-indexed) at opts.CanonicalDPI, using the disk
-// cache. It returns a decoded RGBA image and whether the bitmap came from the
-// cache.
-func PageBitmap(ctx context.Context, c *cache.Cache, pdfPath string, page int, opts Options) (image.Image, bool, error) {
+// cache. It returns a decoded RGBA image, the PDF's total page count
+// (surfaced for analytics), and whether the bitmap came from the cache.
+func PageBitmap(ctx context.Context, c *cache.Cache, pdfPath string, page int, opts Options) (image.Image, int, bool, error) {
 	st, err := os.Stat(pdfPath)
 	if err != nil {
-		return nil, false, fmt.Errorf("stat pdf: %w", err)
+		return nil, 0, false, fmt.Errorf("stat pdf: %w", err)
 	}
 	key := cache.Key(pdfPath, st.ModTime().Unix(), page, opts.CanonicalDPI)
 
+	// page count requires opening the PDF; do it once up-front so both
+	// cache-hit and cache-miss paths can surface it.
+	pageCount, err := pdfPageCount(pdfPath)
+	if err != nil {
+		return nil, 0, false, err
+	}
+
 	if path, hit, err := c.Get(ctx, key); err != nil {
-		return nil, false, err
+		return nil, pageCount, false, err
 	} else if hit {
 		img, err := readPNG(path)
 		if err != nil {
-			return nil, false, fmt.Errorf("decode cached png: %w", err)
+			return nil, pageCount, false, fmt.Errorf("decode cached png: %w", err)
 		}
-		return img, true, nil
+		return img, pageCount, true, nil
 	}
 
-	img, pngBytes, err := rasterize(pdfPath, page, opts.CanonicalDPI)
+	img, pngBytes, err := rasterize(pdfPath, page, opts.CanonicalDPI, pageCount)
 	if err != nil {
-		return nil, false, err
+		return nil, pageCount, false, err
 	}
 	if _, err := c.Put(ctx, key, pngBytes); err != nil {
-		return nil, false, err
+		return nil, pageCount, false, err
 	}
-	return img, false, nil
+	return img, pageCount, false, nil
 }
 
-func rasterize(pdfPath string, page int, dpi float64) (image.Image, []byte, error) {
+func pdfPageCount(pdfPath string) (int, error) {
+	doc, err := fitz.New(pdfPath)
+	if err != nil {
+		return 0, fmt.Errorf("open pdf: %w", err)
+	}
+	defer doc.Close()
+	return doc.NumPage(), nil
+}
+
+func rasterize(pdfPath string, page int, dpi float64, pageCount int) (image.Image, []byte, error) {
 	doc, err := fitz.New(pdfPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open pdf: %w", err)
 	}
 	defer doc.Close()
-	if page < 1 || page > doc.NumPage() {
-		return nil, nil, fmt.Errorf("page %d out of range (1..%d)", page, doc.NumPage())
+	if page < 1 || page > pageCount {
+		return nil, nil, fmt.Errorf("page %d out of range (1..%d)", page, pageCount)
 	}
 	// go-fitz uses 0-indexed pages.
 	img, err := doc.ImageDPI(page-1, dpi)
