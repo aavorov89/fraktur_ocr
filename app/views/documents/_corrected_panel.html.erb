@@ -1,0 +1,26 @@
+<% running = document.correction_running? %>
+<div class="panel-actions">
+  <%= button_to t('correction.run'), document_correction_path(document),
+        class: "panel-action-btn panel-action-primary", disabled: running %>
+</div>
+
+<% if running %>
+  <div class="ocr-correction-status">
+    <span class="ocr-spinner-small"></span><span><%= t('correction.running') %></span>
+  </div>
+<% elsif document.correction_failed? %>
+  <div class="ocr-correction-warning">
+    <span>⚠</span><span><%= document.correction_error || t('correction.failed') %></span>
+  </div>
+<% end %>
+
+<% if document.corrected_text.present? %>
+  <div class="ocr-content">
+    <div class="ocr-text <%= 'ocr-text-dim' if running %>"><%= document.corrected_text %></div>
+    <%= render "documents/copy_button", text: document.corrected_text, title: t('ocr.copy_text') %>
+  </div>
+<% elsif !running && !document.correction_failed? %>
+  <div class="ocr-state">
+    <span class="ocr-state-text"><%= t('correction.will_appear') %></span>
+  </div>
+<% end %>

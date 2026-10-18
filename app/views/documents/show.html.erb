@@ -79,7 +79,7 @@
           <div class="canvas-wrapper">
             <canvas data-pdf-viewer-target="mainCanvas" class="pdf-canvas"></canvas>
             <canvas data-pdf-viewer-target="overlayCanvas" class="overlay-canvas"
-                    data-action="mousedown->pdf-viewer#startDraw mousemove->pdf-viewer#draw mouseup->pdf-viewer#endDraw mouseleave->pdf-viewer#leaveOverlay"></canvas>
+                    data-action="mousemove->pdf-viewer#updateHover click->pdf-viewer#clickRegion mouseleave->pdf-viewer#leaveOverlay"></canvas>
             <div class="draw-hint" data-pdf-viewer-target="drawHint">
               <%= t('documents.show.draw_hint') %>
             </div>
@@ -91,21 +91,31 @@
 
   <div class="divider"></div>
 
-  <%# === MIDDLE PANEL: OCR Result === %>
-  <div class="panel panel-ocr">
+  <%# === Recognized text: the buffer of clicked regions (raw OCR) === %>
+  <div class="panel panel-text">
     <div class="panel-label"><%= t('documents.panels.recognized_text') %></div>
-    <div id="ocr_panel">
-      <%= render "documents/ocr_panel", ocr_request: @ocr_request %>
+    <div id="recognized_panel" class="panel-body">
+      <%= render "documents/recognized_panel", document: @document %>
     </div>
   </div>
 
   <div class="divider"></div>
 
-  <%# === RIGHT PANEL: Translation === %>
-  <div class="panel panel-translation">
+  <%# === Corrected text: GPT over the whole buffer, on demand === %>
+  <div class="panel panel-text">
+    <div class="panel-label"><%= t('documents.panels.corrected_text') %></div>
+    <div id="corrected_panel" class="panel-body">
+      <%= render "documents/corrected_panel", document: @document %>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <%# === Translation: DeepL, on demand === %>
+  <div class="panel panel-text">
     <div class="panel-label"><%= t('documents.panels.translation') %></div>
-    <div id="translation_panel">
-      <%= render "documents/translation_panel", ocr_request: @ocr_request %>
+    <div id="translation_panel" class="panel-body">
+      <%= render "documents/translation_panel", document: @document %>
     </div>
   </div>
 </div>

@@ -21,9 +21,15 @@ class OcrJob < ApplicationJob
 
   def perform(ocr_request_id)
     ocr_request = OcrRequest.find(ocr_request_id)
-    ocr_request.update!(status: :processing)
-
     jpeg_path = File.join(self.class.render_output_dir, "#{ocr_request_id}.jpg")
+
+    # Buffer cleared before we got here: nobody will see the text.
+    if ocr_request.cleared_at?
+      File.delete(jpeg_path) rescue nil
+      return
+    end
+
+    ocr_request.update!(status: :processing)
     raise "rendered crop not found at #{jpeg_path}" unless File.exist?(jpeg_path)
 
     api_key = Rails.application.credentials.dig(:anthropic, :api_key)
@@ -46,9 +52,10 @@ class OcrJob < ApplicationJob
     end
 
     if response[:success]
+      # Correction and translation run later over the whole buffer, on demand.
       ocr_request.update!(status: :completed, recognized_text: response[:text])
       File.delete(jpeg_path) rescue nil
-      TextCorrectionJob.perform_later(ocr_request.id)
+      BetterStackWarehouse::Pipeline.flush(ocr_request.id, status: :completed)
     else
       ocr_request.update!(status: :failed, error_message: response[:error])
     end

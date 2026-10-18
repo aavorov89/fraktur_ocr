@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_18_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -70,13 +70,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_000000) do
   end
 
   create_table "documents", force: :cascade do |t|
+    t.text "corrected_text"
+    t.text "correction_error"
+    t.datetime "correction_requested_at"
+    t.integer "correction_status", default: 0, null: false
     t.datetime "created_at", null: false
     t.string "name", null: false
     t.datetime "pdf_stored_at"
+    t.string "target_language", default: "RU", null: false
+    t.text "translated_text"
+    t.text "translation_error"
+    t.datetime "translation_requested_at"
+    t.integer "translation_status", default: 0, null: false
     t.datetime "updated_at", null: false
   end
 
   create_table "ocr_requests", force: :cascade do |t|
+    t.datetime "cleared_at"
     t.text "corrected_text"
     t.text "correction_error"
     t.datetime "created_at", null: false
@@ -90,12 +100,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_000000) do
     t.decimal "rect_w", precision: 10, scale: 4
     t.decimal "rect_x", precision: 10, scale: 4
     t.decimal "rect_y", precision: 10, scale: 4
+    t.integer "region_index"
     t.integer "status", default: 0, null: false
     t.string "target_language", default: "RU"
     t.text "translated_text"
     t.text "translation_error"
     t.datetime "updated_at", null: false
     t.index ["document_id", "created_at"], name: "index_ocr_requests_on_document_id_and_created_at"
+    t.index ["document_id", "page_number", "region_index"], name: "index_ocr_requests_on_buffered_region", unique: true, where: "((cleared_at IS NULL) AND (region_index IS NOT NULL))"
     t.index ["document_id"], name: "index_ocr_requests_on_document_id"
   end
 

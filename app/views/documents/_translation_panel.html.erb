@@ -1,49 +1,29 @@
-<% if ocr_request.nil? %>
+<% running = document.translation_running? %>
+<%= form_with url: document_translation_path(document), class: "panel-actions" do |f| %>
+  <label for="target-language" class="language-label"><%= t('translation.translate_to') %></label>
+  <%= f.select :target_language,
+        Document::TARGET_LANGUAGES.map { [t("translation.languages.#{_1.downcase}"), _1] },
+        { selected: document.target_language }, id: "target-language", class: "language-select" %>
+  <%= f.button t('translation.run'), class: "panel-action-btn panel-action-primary", disabled: running %>
+<% end %>
+
+<% if running %>
+  <div class="ocr-correction-status">
+    <span class="ocr-spinner-small"></span><span><%= t('translation.translating') %></span>
+  </div>
+<% elsif document.translation_failed? %>
+  <div class="ocr-correction-warning">
+    <span>⚠</span><span><%= document.translation_error || t('translation.failed') %></span>
+  </div>
+<% end %>
+
+<% if document.translated_text.present? %>
+  <div class="ocr-content">
+    <div class="ocr-text <%= 'ocr-text-dim' if running %>"><%= document.translated_text %></div>
+    <%= render "documents/copy_button", text: document.translated_text, title: t('translation.copy_translation') %>
+  </div>
+<% elsif !running && !document.translation_failed? %>
   <div class="translation-state">
     <span class="translation-state-text"><%= t('translation.will_appear') %></span>
   </div>
-
-<% elsif ocr_request.pending? || ocr_request.processing? %>
-  <div class="translation-state">
-    <span class="translation-state-text"><%= t('translation.waiting') %></span>
-  </div>
-
-<% elsif ocr_request.failed? %>
-  <div class="translation-state">
-    <span class="translation-state-text"><%= t('translation.ocr_failed') %></span>
-  </div>
-
-<% elsif ocr_request.completed? %>
-  <div class="language-selector-wrapper"
-       data-controller="language-selector"
-       data-language-selector-url-value="<%= update_language_document_ocr_request_path(ocr_request.document_id, ocr_request.id) %>">
-    <label for="target-language" class="language-label"><%= t('translation.translate_to') %></label>
-    <select id="target-language"
-            class="language-select"
-            data-action="change->language-selector#change">
-      <option value="RU" <%= 'selected' if ocr_request.target_language == 'RU' %>><%= t('translation.languages.russian') %></option>
-      <option value="CS" <%= 'selected' if ocr_request.target_language == 'CS' %>><%= t('translation.languages.czech') %></option>
-      <option value="EN" <%= 'selected' if ocr_request.target_language == 'EN' %>><%= t('translation.languages.english') %></option>
-    </select>
-  </div>
-
-  <% if ocr_request.translated_text.present? %>
-    <div class="ocr-content">
-      <div class="ocr-text"><%= ocr_request.translated_text %></div>
-      <button class="copy-btn" data-controller="clipboard" data-clipboard-text-value="<%= ocr_request.translated_text %>" data-action="clipboard#copy" title="<%= t('translation.copy_translation') %>">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
-        </svg>
-      </button>
-    </div>
-  <% elsif ocr_request.translation_error.present? %>
-    <div class="ocr-state">
-      <span class="ocr-error">⚠ <%= ocr_request.translation_error %></span>
-    </div>
-  <% else %>
-    <div class="ocr-state">
-      <div class="ocr-spinner"></div>
-      <span class="ocr-state-text"><%= t('translation.translating') %></span>
-    </div>
-  <% end %>
 <% end %>
