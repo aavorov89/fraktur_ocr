@@ -7,17 +7,28 @@ import { ensurePdfOnServer } from "services/pdf_sync"
 pdfjsLib.GlobalWorkerOptions.workerSrc =
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.0.375/build/pdf.worker.min.mjs"
 
+// Extra margin (PDF points) around a clicked Mistral region before cropping.
+const REGION_PADDING_PTS = 4
+// Pages after the visible one whose text regions are detected in advance.
+const REGION_PREFETCH_PAGES = 2
+// Fallback polling while a server-side render is in flight (~2.5 min, a bit
+// longer than PageLayout::STALE_AFTER).
+const REGION_POLL_INTERVAL_MS = 5000
+const REGION_POLL_MAX_ATTEMPTS = 30
+
 export default class extends Controller {
   static targets = [
     "mainCanvas", "overlayCanvas", "thumbSidebar", "scrollContainer",
     "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint",
-    "loadingOverlay", "loadingProgress", "missingOverlay", "reselectInput"
+    "loadingOverlay", "loadingProgress", "missingOverlay", "reselectInput",
+    "regionStatus", "layoutUpdate"
   ]
 
   static values = {
     documentId: Number,
     documentName: String,
-    ocrUrl: String
+    ocrUrl: String,
+    textRegionsUrl: String
   }
 
   connect() {
@@ -38,6 +49,12 @@ export default class extends Controller {
     this.thumbsLoaded = 0
     this.thumbsPerBatch = 50
     this.loadingThumbs = false
+    // Text regions detected by Mistral OCR, per page number. Coordinates are
+    // normalized to 0..1 of the page; clicking one starts the regular OCR.
+    this.regionsByPage = new Map()
+    this.regionsInFlight = new Set()
+    this.regionsFailed = new Set()
+    this.hoverRegion = null
 
     this.loadPdf()
     this.boundKeyHandler = this.handleKeydown.bind(this)
@@ -109,6 +126,7 @@ export default class extends Controller {
       const uploaded = await ensurePdfOnServer(this.documentIdValue, arrayBuffer)
       if (uploaded) console.log("PDF uploaded to server")
       this.serverHasPdf = true
+      if (this.pdfDoc) this.loadRegionsAround(this.currentPage)
     } catch (err) {
       console.error("PDF server sync failed:", err)
       // Browser-rendered crops still work; the user keeps using the app.
@@ -197,6 +215,205 @@ export default class extends Controller {
     }
 
     this.updateToolbar()
+    this.hoverRegion = null
+    this.redrawOverlay()
+    this.loadRegionsAround(this.currentPage)
+  }
+
+  // === Text regions (Mistral OCR layout) ===
+
+  regionsUrl(pageNumber) {
+    return this.textRegionsUrlValue.replace("__PAGE__", pageNumber)
+  }
+
+  // Lazy detection: the page in view plus a few ahead (prefetch). Prefetch
+  // only uses the server path — the browser renders just the visible page.
+  loadRegionsAround(pageNumber) {
+    this.loadRegions(pageNumber)
+    for (let i = 1; i <= REGION_PREFETCH_PAGES; i++) {
+      this.loadRegions(pageNumber + i, { prefetch: true })
+    }
+  }
+
+  async loadRegions(pageNumber, { prefetch = false } = {}) {
+    if (pageNumber < 1 || pageNumber > this.totalPages) return
+    if (this.regionsByPage.has(pageNumber) || this.regionsInFlight.has(pageNumber)) {
+      this.updateRegionStatus()
+      return
+    }
+    if (prefetch && !this.serverHasPdf) return
+
+    this.regionsInFlight.add(pageNumber)
+    this.regionsFailed.delete(pageNumber)
+    this.updateRegionStatus()
+
+    try {
+      const url = this.regionsUrl(pageNumber)
+      const response = await fetch(url, { headers: { "Accept": "application/json" } })
+      if (!response.ok && response.status !== 404) throw new Error(`HTTP ${response.status}`)
+      let layout = response.ok ? await response.json() : null
+
+      if (layout?.status !== "completed") {
+        // POST is idempotent: the server re-renders only when nothing is in
+        // flight. Before the PDF reaches the server we render the page here.
+        const needsImage = !this.serverHasPdf && layout?.status !== "pending"
+        const body = needsImage ? { image: await this.pageImageDataUrl(pageNumber) } : {}
+        const posted = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-CSRF-Token": document.querySelector("meta[name='csrf-token']")?.content
+          },
+          body: JSON.stringify(body)
+        })
+        if (!posted.ok) throw new Error(`HTTP ${posted.status}`)
+        layout = await posted.json()
+      }
+
+      this.applyLayout(layout)
+    } catch (err) {
+      // Next visit to this page retries; manual drawing keeps working.
+      console.error(`Text region detection failed for page ${pageNumber}:`, err)
+      this.finishRegions(pageNumber, { failed: true })
+    }
+  }
+
+  // Layout JSON from a response, a poll or a Turbo Stream broadcast.
+  applyLayout(layout) {
+    const page = layout.page_number
+    if (layout.status === "completed") {
+      this.regionsByPage.set(page, layout.regions || [])
+      this.finishRegions(page)
+    } else if (layout.status === "failed") {
+      if (layout.error) console.warn(`Text region detection failed for page ${page}: ${layout.error}`)
+      this.finishRegions(page, { failed: true })
+    } else if (this.regionsInFlight.has(page)) {
+      // Server render in flight: the result arrives as a broadcast; poll in
+      // case the cable connection drops it.
+      this.pollRegions(page)
+    }
+  }
+
+  finishRegions(pageNumber, { failed = false } = {}) {
+    this.regionsInFlight.delete(pageNumber)
+    if (failed) this.regionsFailed.add(pageNumber)
+    else this.regionsFailed.delete(pageNumber)
+    if (pageNumber === this.currentPage) {
+      this.updateRegionStatus()
+      if (!this.drawing) this.redrawOverlay()
+    }
+  }
+
+  pollRegions(pageNumber, attempt = 0) {
+    setTimeout(async () => {
+      if (!this.element.isConnected || !this.regionsInFlight.has(pageNumber)) return
+      if (attempt >= REGION_POLL_MAX_ATTEMPTS) {
+        this.finishRegions(pageNumber, { failed: true })
+        return
+      }
+      try {
+        const response = await fetch(this.regionsUrl(pageNumber), { headers: { "Accept": "application/json" } })
+        if (response.ok) {
+          const layout = await response.json()
+          if (layout.status !== "pending") {
+            this.applyLayout(layout)
+            return
+          }
+        }
+      } catch (err) {
+        console.error(`Polling text regions for page ${pageNumber} failed:`, err)
+      }
+      this.pollRegions(pageNumber, attempt + 1)
+    }, REGION_POLL_INTERVAL_MS)
+  }
+
+  layoutUpdateTargetConnected(element) {
+    try {
+      this.applyLayout(JSON.parse(element.dataset.layout))
+    } catch (err) {
+      console.error("Bad page layout broadcast:", err)
+    }
+    element.remove()
+  }
+
+  updateRegionStatus() {
+    if (!this.hasRegionStatusTarget) return
+    const page = this.currentPage
+    let state = ""
+    if (this.regionsInFlight.has(page)) state = "detecting"
+    else if (this.regionsFailed.has(page)) state = "failed"
+    this.regionStatusTarget.dataset.state = state
+  }
+
+  // Render a whole page as JPEG for layout detection. ~2000 px on the long
+  // side is plenty to find paragraph boxes and keeps the upload small.
+  async pageImageDataUrl(pageNumber) {
+    const MAX_LONG_SIDE = 2000
+    const MAX_SCALE = 3.0
+    const JPEG_QUALITY = 0.85
+
+    const page = await this.pdfDoc.getPage(pageNumber)
+    const base = page.getViewport({ scale: 1 })
+    const scale = Math.min(MAX_SCALE, MAX_LONG_SIDE / Math.max(base.width, base.height))
+    const viewport = page.getViewport({ scale })
+
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(viewport.width)
+    canvas.height = Math.round(viewport.height)
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise
+    return canvas.toDataURL("image/jpeg", JPEG_QUALITY)
+  }
+
+  currentRegions() {
+    return this.regionsByPage.get(this.currentPage) || []
+  }
+
+  // Region (normalized) -> overlay canvas pixels, optionally padded a little
+  // so tight Mistral boxes don't clip ascenders/descenders.
+  regionToCanvasRect(region, padPts = 0) {
+    const overlay = this.overlayCanvasTarget
+    const pad = padPts * this.scale
+    const x = Math.max(0, region.x * overlay.width - pad)
+    const y = Math.max(0, region.y * overlay.height - pad)
+    const right = Math.min(overlay.width, (region.x + region.w) * overlay.width + pad)
+    const bottom = Math.min(overlay.height, (region.y + region.h) * overlay.height + pad)
+    return { x, y, w: right - x, h: bottom - y }
+  }
+
+  // Smallest region containing the point, so nested boxes stay clickable.
+  regionAt(pos) {
+    if (!pos) return null
+    let best = null
+    let bestArea = Infinity
+    for (const region of this.currentRegions()) {
+      const r = this.regionToCanvasRect(region)
+      if (pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h) {
+        const area = r.w * r.h
+        if (area < bestArea) {
+          best = region
+          bestArea = area
+        }
+      }
+    }
+    return best
+  }
+
+  updateHover(e) {
+    const region = this.regionAt(this.getCanvasPos(e))
+    if (region === this.hoverRegion) return
+    this.hoverRegion = region
+    this.overlayCanvasTarget.classList.toggle("over-region", !!region)
+    this.redrawOverlay()
+  }
+
+  leaveOverlay(e) {
+    this.endDraw(e)
+    if (this.hoverRegion) {
+      this.hoverRegion = null
+      this.overlayCanvasTarget.classList.remove("over-region")
+      this.redrawOverlay()
+    }
   }
 
   async generateThumbnails() {
@@ -348,7 +565,10 @@ export default class extends Controller {
   }
 
   draw(e) {
-    if (!this.drawing || !this.startPos) return
+    if (!this.drawing || !this.startPos) {
+      this.updateHover(e)
+      return
+    }
     const pos = this.getCanvasPos(e)
     this.rect = {
       x: Math.min(this.startPos.x, pos.x),
@@ -359,15 +579,21 @@ export default class extends Controller {
     this.drawRect(this.rect)
   }
 
-  async endDraw() {
+  async endDraw(e) {
     if (!this.drawing) return
     this.drawing = false
 
     if (!this.rect || this.rect.w < 10 || this.rect.h < 10) {
-      this.rect = null
-      this.clearOverlay()
-      if (this.hasDrawHintTarget) this.drawHintTarget.style.display = ""
-      return
+      // A click (no real drag) on a detected region recognizes that region.
+      const region = e?.type === "mouseup" ? this.regionAt(this.startPos) : null
+      if (!region) {
+        this.rect = null
+        this.clearOverlay()
+        if (this.hasDrawHintTarget) this.drawHintTarget.style.display = ""
+        return
+      }
+      this.rect = this.regionToCanvasRect(region, REGION_PADDING_PTS)
+      this.drawRect(this.rect)
     }
 
     const rectAtCapture = { ...this.rect }
@@ -442,10 +668,30 @@ export default class extends Controller {
     return cropCanvas.toDataURL("image/jpeg", JPEG_QUALITY)
   }
 
-  drawRect(r) {
+  // Clears the overlay and draws the detected text regions of the current
+  // page; the hovered one is emphasized.
+  redrawOverlay() {
     const overlay = this.overlayCanvasTarget
     const ctx = overlay.getContext("2d")
     ctx.clearRect(0, 0, overlay.width, overlay.height)
+
+    for (const region of this.currentRegions()) {
+      const r = this.regionToCanvasRect(region)
+      const hovered = region === this.hoverRegion && !this.drawing
+      if (hovered) {
+        ctx.fillStyle = "rgba(196, 69, 60, 0.12)"
+        ctx.fillRect(r.x, r.y, r.w, r.h)
+      }
+      ctx.strokeStyle = hovered ? "rgba(196, 69, 60, 0.9)" : "rgba(196, 69, 60, 0.35)"
+      ctx.lineWidth = hovered ? 2 : 1
+      ctx.strokeRect(r.x, r.y, r.w, r.h)
+    }
+  }
+
+  drawRect(r) {
+    const overlay = this.overlayCanvasTarget
+    const ctx = overlay.getContext("2d")
+    this.redrawOverlay()
 
     ctx.fillStyle = "rgba(196, 69, 60, 0.08)"
     ctx.fillRect(r.x, r.y, r.w, r.h)
@@ -457,10 +703,9 @@ export default class extends Controller {
     ctx.setLineDash([])
   }
 
+  // Removes the selection rectangle; detected regions stay visible.
   clearOverlay() {
-    const overlay = this.overlayCanvasTarget
-    const ctx = overlay.getContext("2d")
-    ctx.clearRect(0, 0, overlay.width, overlay.height)
+    this.redrawOverlay()
   }
 
   // === OCR submission via Turbo Stream ===

@@ -130,7 +130,18 @@ func CropAndEncode(pageImg image.Image, rectPts RectPts, opts Options) ([]byte, 
 	cropped := image.NewRGBA(image.Rect(0, 0, cropRect.Dx(), cropRect.Dy()))
 	draw.Copy(cropped, image.Point{}, pageImg, cropRect, draw.Src, nil)
 
-	final := downsample(cropped, opts.MaxLongSidePx)
+	return downsampleAndEncode(cropped, opts)
+}
+
+// EncodePage downsamples a whole page bitmap so the long side is ≤
+// opts.MaxLongSidePx and JPEG-encodes it. Used for text-region detection,
+// which needs the full page rather than a crop.
+func EncodePage(pageImg image.Image, opts Options) ([]byte, image.Rectangle, error) {
+	return downsampleAndEncode(pageImg, opts)
+}
+
+func downsampleAndEncode(src image.Image, opts Options) ([]byte, image.Rectangle, error) {
+	final := downsample(src, opts.MaxLongSidePx)
 
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, final, &jpeg.Options{Quality: opts.JPEGQuality}); err != nil {

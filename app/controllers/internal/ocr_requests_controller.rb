@@ -1,6 +1,4 @@
-class Internal::OcrRequestsController < ActionController::API
-  before_action :verify_internal_auth
-
+class Internal::OcrRequestsController < Internal::BaseController
   def render_done
     ocr_request_id = params[:id].to_i
     body = parse_render_body(request.raw_post)
@@ -44,11 +42,5 @@ class Internal::OcrRequestsController < ActionController::API
     Integer(value)
   rescue ArgumentError, TypeError
     nil
-  end
-
-  def verify_internal_auth
-    expected = ENV.fetch("INTERNAL_AUTH_SECRET")
-    provided = request.headers["X-Internal-Auth"].to_s
-    head(:unauthorized) unless ActiveSupport::SecurityUtils.secure_compare(expected, provided)
   end
 end

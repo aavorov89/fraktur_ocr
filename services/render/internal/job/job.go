@@ -74,26 +74,13 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 	)
 	defer span.End()
 
-	pdfAbs, err := resolveSafePath(w.PDFRootDir, args.PDFPath)
+	pdfAbs, err := locatePDF(w.PDFRootDir, args.PDFPath)
 	if err != nil {
 		span.SetStatus(codes.Error, "bad pdf path")
 		span.RecordError(err)
-		w.Logger.Warn("rejecting job: bad pdf path",
+		w.Logger.Warn("rejecting job: bad pdf",
 			"ocr_request_id", args.OCRRequestID, "pdf_path", args.PDFPath, "err", err.Error())
-		return river.JobCancel(err)
-	}
-
-	st, err := os.Stat(pdfAbs)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			w.Logger.Warn("rejecting job: pdf missing",
-				"ocr_request_id", args.OCRRequestID, "pdf_path", args.PDFPath)
-			return river.JobCancel(fmt.Errorf("pdf not found: %s", args.PDFPath))
-		}
-		return fmt.Errorf("stat pdf: %w", err)
-	}
-	if st.IsDir() {
-		return river.JobCancel(fmt.Errorf("pdf path is a directory: %s", args.PDFPath))
+		return err
 	}
 
 	pageImg, pdfPageCount, cacheHit, err := render.PageBitmap(ctx, w.Cache, pdfAbs, args.Page, w.Opts)
@@ -158,6 +145,27 @@ func (w *Worker) Work(ctx context.Context, j *river.Job[RenderArgs]) error {
 		"pdf_page_count", pdfPageCount,
 	)
 	return nil
+}
+
+// locatePDF resolves rel under root and checks it is an existing file.
+// Permanent problems (bad path, missing file) come back as river.JobCancel
+// so the job isn't retried; transient stat errors are returned as-is.
+func locatePDF(root, rel string) (string, error) {
+	pdfAbs, err := resolveSafePath(root, rel)
+	if err != nil {
+		return "", river.JobCancel(err)
+	}
+	st, err := os.Stat(pdfAbs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", river.JobCancel(fmt.Errorf("pdf not found: %s", rel))
+		}
+		return "", fmt.Errorf("stat pdf: %w", err)
+	}
+	if st.IsDir() {
+		return "", river.JobCancel(fmt.Errorf("pdf path is a directory: %s", rel))
+	}
+	return pdfAbs, nil
 }
 
 // resolveSafePath joins root and rel, then ensures the cleaned path is still

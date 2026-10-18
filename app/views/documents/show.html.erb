@@ -12,7 +12,11 @@
          data-controller="pdf-viewer"
          data-pdf-viewer-document-id-value="<%= @document.id %>"
          data-pdf-viewer-document-name-value="<%= @document.name %>"
-         data-pdf-viewer-ocr-url-value="<%= document_ocr_requests_path(@document) %>">
+         data-pdf-viewer-ocr-url-value="<%= document_ocr_requests_path(@document) %>"
+         data-pdf-viewer-text-regions-url-value="<%= document_page_text_regions_path(@document, page_number: "__PAGE__") %>">
+
+      <%# Text-region detection results broadcast from PageLayout land here %>
+      <div id="page_layouts" hidden></div>
 
       <%# Loading overlay %>
       <div class="pdf-loading-overlay" data-pdf-viewer-target="loadingOverlay">
@@ -55,6 +59,10 @@
           <span class="zoom-info" data-pdf-viewer-target="zoomInfo">50%</span>
           <button class="toolbar-btn zoom-btn" data-action="pdf-viewer#zoomIn">+</button>
           <div class="toolbar-spacer"></div>
+          <span class="region-status" data-pdf-viewer-target="regionStatus">
+            <span data-state="detecting"><span class="ocr-spinner-small"></span><%= t('documents.show.detecting_regions') %></span>
+            <span data-state="failed">⚠ <%= t('documents.show.regions_failed') %></span>
+          </span>
           <label class="toolbar-btn upload-btn" title="<%= t('documents.show.load_different_pdf') %>"
                  data-controller="quick-upload"
                  data-quick-upload-document-id-value="<%= @document.id %>">
@@ -71,7 +79,7 @@
           <div class="canvas-wrapper">
             <canvas data-pdf-viewer-target="mainCanvas" class="pdf-canvas"></canvas>
             <canvas data-pdf-viewer-target="overlayCanvas" class="overlay-canvas"
-                    data-action="mousedown->pdf-viewer#startDraw mousemove->pdf-viewer#draw mouseup->pdf-viewer#endDraw mouseleave->pdf-viewer#endDraw"></canvas>
+                    data-action="mousedown->pdf-viewer#startDraw mousemove->pdf-viewer#draw mouseup->pdf-viewer#endDraw mouseleave->pdf-viewer#leaveOverlay"></canvas>
             <div class="draw-hint" data-pdf-viewer-target="drawHint">
               <%= t('documents.show.draw_hint') %>
             </div>

@@ -1,5 +1,6 @@
 class Document < ApplicationRecord
   has_many :ocr_requests, dependent: :destroy
+  has_many :page_layouts, dependent: :destroy
 
   validates :name, presence: true
 

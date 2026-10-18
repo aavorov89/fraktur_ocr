@@ -72,18 +72,27 @@ func run() error {
 
 	cb := callback.NewClient(cfg.RailsBaseURL, cfg.InternalAuthSecret, cfg.CallbackTimeout)
 
+	opts := render.Options{
+		CanonicalDPI:  cfg.CanonicalDPI,
+		MaxLongSidePx: cfg.MaxLongSidePx,
+		JPEGQuality:   cfg.JPEGQuality,
+	}
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &job.Worker{
 		PDFRootDir:      cfg.PDFRootDir,
 		RenderOutputDir: cfg.RenderOutputDir,
 		Callback:        cb,
 		Cache:           cch,
-		Opts: render.Options{
-			CanonicalDPI:  cfg.CanonicalDPI,
-			MaxLongSidePx: cfg.MaxLongSidePx,
-			JPEGQuality:   cfg.JPEGQuality,
-		},
-		Logger: logger,
+		Opts:            opts,
+		Logger:          logger,
+	})
+	river.AddWorker(workers, &job.PageWorker{
+		PDFRootDir:      cfg.PDFRootDir,
+		RenderOutputDir: cfg.RenderOutputDir,
+		Callback:        cb,
+		Cache:           cch,
+		Opts:            opts,
+		Logger:          logger,
 	})
 
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{

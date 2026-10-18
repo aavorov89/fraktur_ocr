@@ -480,6 +480,23 @@ a {
   cursor: crosshair;
 }
 
+.overlay-canvas.over-region { cursor: pointer; }
+
+/* Text-region detection status in the PDF toolbar */
+.region-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.region-status > [data-state] { display: none; align-items: center; gap: 6px; }
+.region-status[data-state="detecting"] > [data-state="detecting"],
+.region-status[data-state="failed"] > [data-state="failed"] { display: flex; }
+.region-status > [data-state="failed"] { color: var(--accent); }
+
 .draw-hint {
   position: absolute;
   bottom: 12px;

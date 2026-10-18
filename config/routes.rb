@@ -27,10 +27,19 @@ Rails.application.routes.draw do
         patch :update_language
       end
     end
+    scope module: :documents do
+      get "pages/:page_number/text_regions", to: "text_regions#show", as: :page_text_regions
+      post "pages/:page_number/text_regions", to: "text_regions#create"
+    end
   end
 
   namespace :internal do
     resources :ocr_requests, only: [] do
+      member do
+        post :render_done
+      end
+    end
+    resources :page_layouts, only: [] do
       member do
         post :render_done
       end

@@ -41,7 +41,22 @@ func NewClient(baseURL, secret string, timeout time.Duration) *Client {
 }
 
 func (c *Client) RenderDone(ctx context.Context, ocrRequestID int64, body RenderDoneBody) error {
-	u, err := url.JoinPath(c.BaseURL, "/internal/ocr_requests", strconv.FormatInt(ocrRequestID, 10), "/render_done")
+	return c.post(ctx, body, "/internal/ocr_requests", strconv.FormatInt(ocrRequestID, 10), "/render_done")
+}
+
+// PageRenderDoneBody is the JSON payload sent to Rails after a full page
+// has been rendered for text-region detection.
+type PageRenderDoneBody struct {
+	RenderMs     int `json:"render_ms"`
+	PDFPageCount int `json:"pdf_page_count"`
+}
+
+func (c *Client) PageRenderDone(ctx context.Context, pageLayoutID int64, body PageRenderDoneBody) error {
+	return c.post(ctx, body, "/internal/page_layouts", strconv.FormatInt(pageLayoutID, 10), "/render_done")
+}
+
+func (c *Client) post(ctx context.Context, body any, path ...string) error {
+	u, err := url.JoinPath(c.BaseURL, path...)
 	if err != nil {
 		return fmt.Errorf("build callback URL: %w", err)
 	}
