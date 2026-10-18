@@ -37,7 +37,7 @@ en:
       source_pdf: "Source PDF"
       page_info: "– / –"
       load_different_pdf: "Load different PDF"
-      draw_hint: "Click a highlighted region to append its text to the buffer"
+      draw_hint: "Click a region to recognize it; drag to move it; drag an edge to resize it"
       detecting_regions: "Detecting text regions…"
       regions_failed: "Text regions unavailable"
       pdf_missing: "PDF not available in this browser"

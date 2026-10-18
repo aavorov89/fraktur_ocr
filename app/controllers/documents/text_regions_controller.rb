@@ -1,7 +1,7 @@
 module Documents
   # Text regions of a single PDF page, detected once per page by Mistral OCR
   # and cached in page_layouts. Clicking a region later starts the regular
-  # OCR pipeline.
+  # OCR pipeline; dragging it moves or resizes it (update).
   #
   # Two ways to get the page image, mirroring OCR crops:
   # - browser path (PDF not on the server yet): the request carries a page
@@ -37,6 +37,29 @@ module Documents
       else
         head :conflict
       end
+    end
+
+    # Move/resize one region. Regions whose text is in the buffer are locked
+    # so the box always matches the recognized text (a failed one may be
+    # fixed and clicked again).
+    def update
+      layout = @document.page_layouts.find_by(page_number: params[:page_number])
+      return head(:not_found) if layout.nil?
+      return head(:conflict) unless layout.completed?
+
+      index = Integer(params[:index], exception: false)
+      return head(:not_found) unless index&.between?(0, layout.regions.size - 1)
+
+      locked = @document.ocr_requests.buffered.where(page_number: layout.page_number, region_index: index)
+                        .where.not(status: :failed).exists?
+      return head(:conflict) if locked
+
+      raw = params.require(:region).permit(:x, :y, :w, :h)
+      rect = PageLayout.normalize_rect(x: raw[:x], y: raw[:y], w: raw[:w], h: raw[:h])
+      return head(:unprocessable_entity) if rect.nil?
+
+      layout.update_region!(index, rect)
+      render json: layout
     end
 
     private

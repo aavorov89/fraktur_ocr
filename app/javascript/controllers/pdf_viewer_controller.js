@@ -15,6 +15,16 @@ const REGION_PREFETCH_PAGES = 2
 // longer than PageLayout::STALE_AFTER).
 const REGION_POLL_INTERVAL_MS = 5000
 const REGION_POLL_MAX_ATTEMPTS = 30
+// Region editing by gesture: a plain click recognizes a region, dragging its
+// inside moves it, dragging an edge or corner resizes it (overlay pixels).
+const EDGE_GRAB_PX = 6
+const DRAG_THRESHOLD_PX = 4
+const MIN_REGION_PX = 12
+const HANDLE_PX = 6
+const RESIZE_CURSORS = {
+  n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize",
+  ne: "nesw-resize", sw: "nesw-resize", nw: "nwse-resize", se: "nwse-resize"
+}
 
 export default class extends Controller {
   static targets = [
@@ -50,8 +60,11 @@ export default class extends Controller {
     this.regionsByPage = new Map()
     this.regionsInFlight = new Set()
     this.regionsFailed = new Set()
-    // Index (into the current page's regions) of the region under the mouse.
+    // Index (into the current page's regions) of the free region under the
+    // mouse, and the move/resize in progress ({ page, index, edges, ... }).
     this.hoverRegion = null
+    this.drag = null
+    this.suppressClick = false
     // Regions already in the text buffer: "<page>:<region index>" -> OCR
     // status. Rendered by the recognized-text panel; clicking one again does
     // nothing unless its recognition failed.
@@ -66,6 +79,7 @@ export default class extends Controller {
   disconnect() {
     document.removeEventListener("keydown", this.boundKeyHandler)
     this.bufferObserver?.disconnect()
+    this.stopDragListeners()
   }
 
   // The recognized-text panel is re-rendered by Turbo Streams (our own
@@ -93,9 +107,9 @@ export default class extends Controller {
     return `${pageNumber}:${index}`
   }
 
-  // A region can be clicked unless it is already in the buffer; a failed
-  // recognition can be retried.
-  isRegionClickable(index) {
+  // A region can be clicked, moved and resized unless its text is already in
+  // the buffer; a failed recognition can be fixed and retried.
+  isRegionFree(index) {
     const status = this.bufferedRegions.get(this.regionKey(this.currentPage, index))
     return status === undefined || status === "failed"
   }
@@ -416,37 +430,160 @@ export default class extends Controller {
     return { x, y, w: right - x, h: bottom - y }
   }
 
-  // Index of the smallest region containing the point (so nested boxes stay
-  // clickable), or null.
-  regionIndexAt(pos) {
+  // What a point grabs among the free regions: { index, edges } where edges
+  // is "", "n", "se", ... ("" = inside: click or move). Edge zones win over
+  // insides so a nested box's border stays grabbable; ties go to the
+  // smallest box.
+  regionGrabAt(pos) {
+    const t = EDGE_GRAB_PX
     let best = null
-    let bestArea = Infinity
     this.currentRegions().forEach((region, index) => {
+      if (!this.isRegionFree(index)) return
       const r = this.regionToCanvasRect(region)
-      if (pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h) {
-        const area = r.w * r.h
-        if (area < bestArea) {
-          best = index
-          bestArea = area
-        }
+      if (pos.x < r.x - t || pos.x > r.x + r.w + t || pos.y < r.y - t || pos.y > r.y + r.h + t) return
+
+      const dTop = Math.abs(pos.y - r.y)
+      const dBottom = Math.abs(pos.y - (r.y + r.h))
+      const dLeft = Math.abs(pos.x - r.x)
+      const dRight = Math.abs(pos.x - (r.x + r.w))
+      let edges = ""
+      if (Math.min(dTop, dBottom) <= t) edges += dTop <= dBottom ? "n" : "s"
+      if (Math.min(dLeft, dRight) <= t) edges += dLeft <= dRight ? "w" : "e"
+      const inside = pos.x >= r.x && pos.x <= r.x + r.w && pos.y >= r.y && pos.y <= r.y + r.h
+      if (!edges && !inside) return
+
+      const rank = edges ? 0 : 1
+      const area = r.w * r.h
+      if (!best || rank < best.rank || (rank === best.rank && area < best.area)) {
+        best = { index, edges, rank, area }
       }
     })
-    return best
+    return best && { index: best.index, edges: best.edges }
   }
 
   updateHover(e) {
-    const index = this.regionIndexAt(this.getCanvasPos(e))
+    if (this.drag) return
+    const grab = this.regionGrabAt(this.getCanvasPos(e))
+    this.overlayCanvasTarget.style.cursor = grab ? (RESIZE_CURSORS[grab.edges] || "pointer") : ""
+    const index = grab ? grab.index : null
     if (index === this.hoverRegion) return
     this.hoverRegion = index
-    this.overlayCanvasTarget.classList.toggle("over-region", index !== null && this.isRegionClickable(index))
     this.redrawOverlay()
   }
 
   leaveOverlay() {
+    if (this.drag) return
+    this.overlayCanvasTarget.style.cursor = ""
     if (this.hoverRegion !== null) {
       this.hoverRegion = null
-      this.overlayCanvasTarget.classList.remove("over-region")
       this.redrawOverlay()
+    }
+  }
+
+  // === Region move / resize ===
+
+  startRegionDrag(e) {
+    if (e.button !== 0 || this.drag) return
+    const pos = this.getCanvasPos(e)
+    const grab = this.regionGrabAt(pos)
+    if (!grab) return
+    e.preventDefault() // no text selection while dragging
+
+    this.drag = {
+      page: this.currentPage,
+      index: grab.index,
+      edges: grab.edges,
+      start: pos,
+      original: { ...this.currentRegions()[grab.index] },
+      moved: false
+    }
+    // Listen on window so the drag keeps going outside the canvas.
+    this.boundDragMove = (ev) => this.moveRegionDrag(ev)
+    this.boundDragEnd = () => this.endRegionDrag()
+    window.addEventListener("mousemove", this.boundDragMove)
+    window.addEventListener("mouseup", this.boundDragEnd)
+  }
+
+  moveRegionDrag(e) {
+    const drag = this.drag
+    if (!drag || drag.page !== this.currentPage) return
+    const pos = this.getCanvasPos(e)
+    const dx = pos.x - drag.start.x
+    const dy = pos.y - drag.start.y
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
+    drag.moved = true
+
+    const region = this.currentRegions()[drag.index]
+    if (!region) return
+    const overlay = this.overlayCanvasTarget
+    Object.assign(region, this.draggedRegion(drag, dx / overlay.width, dy / overlay.height))
+    overlay.style.cursor = RESIZE_CURSORS[drag.edges] || "grabbing"
+    this.hoverRegion = drag.index
+    this.redrawOverlay()
+  }
+
+  // New normalized box for a drag offset (dx, dy as page fractions), kept on
+  // the page and no smaller than MIN_REGION_PX.
+  draggedRegion({ original: o, edges }, dx, dy) {
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi)
+    if (!edges) {
+      return { x: clamp(o.x + dx, 0, 1 - o.w), y: clamp(o.y + dy, 0, 1 - o.h) }
+    }
+    const overlay = this.overlayCanvasTarget
+    const minW = MIN_REGION_PX / overlay.width
+    const minH = MIN_REGION_PX / overlay.height
+    let left = o.x, top = o.y, right = o.x + o.w, bottom = o.y + o.h
+    if (edges.includes("w")) left = clamp(left + dx, 0, right - minW)
+    if (edges.includes("e")) right = clamp(right + dx, left + minW, 1)
+    if (edges.includes("n")) top = clamp(top + dy, 0, bottom - minH)
+    if (edges.includes("s")) bottom = clamp(bottom + dy, top + minH, 1)
+    return { x: left, y: top, w: right - left, h: bottom - top }
+  }
+
+  async endRegionDrag() {
+    this.stopDragListeners()
+    const drag = this.drag
+    this.drag = null
+    // A plain click: the click event that follows recognizes the region.
+    if (!drag?.moved) return
+
+    // The click event fired right after this mouseup must not recognize.
+    this.suppressClick = true
+    setTimeout(() => { this.suppressClick = false }, 0)
+    this.overlayCanvasTarget.style.cursor = ""
+
+    const region = this.regionsByPage.get(drag.page)?.[drag.index]
+    if (!region) return
+    const ok = await this.saveRegion(drag.page, drag.index, region)
+    if (!ok) {
+      Object.assign(region, drag.original)
+      if (drag.page === this.currentPage) this.redrawOverlay()
+    }
+  }
+
+  stopDragListeners() {
+    if (this.boundDragMove) window.removeEventListener("mousemove", this.boundDragMove)
+    if (this.boundDragEnd) window.removeEventListener("mouseup", this.boundDragEnd)
+    this.boundDragMove = this.boundDragEnd = null
+  }
+
+  async saveRegion(pageNumber, index, region) {
+    const round = (v) => Math.round(v * 1e5) / 1e5
+    try {
+      const response = await fetch(`${this.regionsUrl(pageNumber)}/${index}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-CSRF-Token": document.querySelector("meta[name='csrf-token']")?.content
+        },
+        body: JSON.stringify({ region: { x: round(region.x), y: round(region.y), w: round(region.w), h: round(region.h) } })
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      return true
+    } catch (err) {
+      console.error(`Saving text region ${pageNumber}:${index} failed:`, err)
+      return false
     }
   }
 
@@ -589,9 +726,10 @@ export default class extends Controller {
   }
 
   async clickRegion(e) {
-    if (e.button !== 0) return
-    const index = this.regionIndexAt(this.getCanvasPos(e))
-    if (index === null || !this.isRegionClickable(index)) return
+    if (e.button !== 0 || this.suppressClick) return
+    const grab = this.regionGrabAt(this.getCanvasPos(e))
+    if (!grab) return
+    const index = grab.index
 
     const page = this.currentPage
     const scale = this.scale
@@ -600,7 +738,8 @@ export default class extends Controller {
 
     // Optimistic: block a second click right away; the server dedupes too.
     this.bufferedRegions.set(key, "pending")
-    this.overlayCanvasTarget.classList.remove("over-region")
+    this.overlayCanvasTarget.style.cursor = ""
+    this.hoverRegion = null
     this.redrawOverlay()
 
     let payload
@@ -670,7 +809,7 @@ export default class extends Controller {
 
   // Clears the overlay and draws the detected text regions of the current
   // page: regions already in the buffer are tinted green (dashed while being
-  // recognized), the hovered clickable one is emphasized.
+  // recognized), the hovered free one is emphasized with resize handles.
   redrawOverlay() {
     const overlay = this.overlayCanvasTarget
     const ctx = overlay.getContext("2d")
@@ -699,6 +838,14 @@ export default class extends Controller {
       ctx.strokeStyle = hovered ? "rgba(196, 69, 60, 0.9)" : "rgba(196, 69, 60, 0.35)"
       ctx.lineWidth = hovered ? 2 : 1
       ctx.strokeRect(r.x, r.y, r.w, r.h)
+
+      if (hovered) {
+        // Corner handles: the box can be resized.
+        ctx.fillStyle = "rgba(196, 69, 60, 0.9)"
+        for (const [hx, hy] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
+          ctx.fillRect(hx - HANDLE_PX / 2, hy - HANDLE_PX / 2, HANDLE_PX, HANDLE_PX)
+        }
+      }
     })
   }
 

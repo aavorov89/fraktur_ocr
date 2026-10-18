@@ -79,7 +79,7 @@
           <div class="canvas-wrapper">
             <canvas data-pdf-viewer-target="mainCanvas" class="pdf-canvas"></canvas>
             <canvas data-pdf-viewer-target="overlayCanvas" class="overlay-canvas"
-                    data-action="mousemove->pdf-viewer#updateHover click->pdf-viewer#clickRegion mouseleave->pdf-viewer#leaveOverlay"></canvas>
+                    data-action="mousedown->pdf-viewer#startRegionDrag mousemove->pdf-viewer#updateHover click->pdf-viewer#clickRegion mouseleave->pdf-viewer#leaveOverlay"></canvas>
             <div class="draw-hint" data-pdf-viewer-target="drawHint">
               <%= t('documents.show.draw_hint') %>
             </div>

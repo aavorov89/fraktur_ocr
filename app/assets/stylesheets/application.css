@@ -543,8 +543,6 @@ a {
   cursor: crosshair;
 }
 
-.overlay-canvas.over-region { cursor: pointer; }
-
 /* Text-region detection status in the PDF toolbar */
 .region-status {
   font-family: var(--font-mono);
