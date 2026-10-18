@@ -59,6 +59,11 @@
           <span class="zoom-info" data-pdf-viewer-target="zoomInfo">50%</span>
           <button class="toolbar-btn zoom-btn" data-action="pdf-viewer#zoomIn">+</button>
           <div class="toolbar-spacer"></div>
+          <button class="toolbar-btn recognize-page-btn" disabled
+                  data-pdf-viewer-target="recognizePageBtn" data-action="pdf-viewer#recognizePage"
+                  title="<%= t('documents.show.recognize_page_hint') %>">
+            <%= t('documents.show.recognize_page') %>
+          </button>
           <span class="region-status" data-pdf-viewer-target="regionStatus">
             <span data-state="detecting"><span class="ocr-spinner-small"></span><%= t('documents.show.detecting_regions') %></span>
             <span data-state="failed">⚠ <%= t('documents.show.regions_failed') %></span>

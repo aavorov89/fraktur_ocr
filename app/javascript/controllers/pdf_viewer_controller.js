@@ -9,6 +9,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc =
 
 // Extra margin (PDF points) around a clicked Mistral region before cropping.
 const REGION_PADDING_PTS = 4
+// Scale of the offscreen page render used for browser-side OCR crops.
+const HIGH_DPI_SCALE = 3.0
 // Pages after the visible one whose text regions are detected in advance.
 const REGION_PREFETCH_PAGES = 2
 // Fallback polling while a server-side render is in flight (~2.5 min, a bit
@@ -37,7 +39,7 @@ export default class extends Controller {
     "mainCanvas", "overlayCanvas", "thumbSidebar", "scrollContainer",
     "pageInfo", "zoomInfo", "prevBtn", "nextBtn", "drawHint",
     "loadingOverlay", "loadingProgress", "missingOverlay", "reselectInput",
-    "regionStatus", "layoutUpdate"
+    "regionStatus", "layoutUpdate", "recognizePageBtn"
   ]
 
   static values = {
@@ -115,9 +117,9 @@ export default class extends Controller {
 
   // A region can be clicked, moved and resized unless its text is already in
   // the buffer; a failed recognition can be fixed and retried.
-  isRegionFree(index) {
-    if (this.currentRegions()[index]?.deleted) return false
-    const status = this.bufferedRegions.get(this.regionKey(this.currentPage, index))
+  isRegionFree(index, pageNumber = this.currentPage) {
+    if (this.regionsByPage.get(pageNumber)?.[index]?.deleted) return false
+    const status = this.bufferedRegions.get(this.regionKey(pageNumber, index))
     return status === undefined || status === "failed"
   }
 
@@ -425,16 +427,15 @@ export default class extends Controller {
     return this.regionsByPage.get(this.currentPage) || []
   }
 
-  // Region (normalized) -> overlay canvas pixels, optionally padded a little
-  // so tight Mistral boxes don't clip ascenders/descenders.
-  regionToCanvasRect(region, padPts = 0) {
+  // Region (normalized) -> overlay canvas pixels.
+  regionToCanvasRect(region) {
     const overlay = this.overlayCanvasTarget
-    const pad = padPts * this.scale
-    const x = Math.max(0, region.x * overlay.width - pad)
-    const y = Math.max(0, region.y * overlay.height - pad)
-    const right = Math.min(overlay.width, (region.x + region.w) * overlay.width + pad)
-    const bottom = Math.min(overlay.height, (region.y + region.h) * overlay.height + pad)
-    return { x, y, w: right - x, h: bottom - y }
+    return {
+      x: region.x * overlay.width,
+      y: region.y * overlay.height,
+      w: region.w * overlay.width,
+      h: region.h * overlay.height
+    }
   }
 
   // What a point grabs among the free regions: { index, edges } where edges
@@ -789,7 +790,7 @@ export default class extends Controller {
     }
   }
 
-  async clickRegion(e) {
+  clickRegion(e) {
     if (e.button !== 0 || this.suppressClick) return
     const grab = this.regionGrabAt(this.getCanvasPos(e))
     if (!grab) return
@@ -797,67 +798,114 @@ export default class extends Controller {
       this.deleteRegion(this.currentPage, grab.index)
       return
     }
-    const index = grab.index
-
-    const page = this.currentPage
-    const scale = this.scale
-    const key = this.regionKey(page, index)
-    const rect = this.regionToCanvasRect(this.currentRegions()[index], REGION_PADDING_PTS)
-
-    // Optimistic: block a second click right away; the server dedupes too.
-    this.bufferedRegions.set(key, "pending")
     this.overlayCanvasTarget.style.cursor = ""
     this.hoverRegion = null
-    this.redrawOverlay()
+    this.recognizeRegion(this.currentPage, grab.index)
+  }
 
-    let payload
-    if (this.serverHasPdf) {
-      // Server-side path: send rect in PDF points; Go renderer crops at 300 DPI.
-      // PDF.js renders at viewport.scale = this.scale, so 1 viewport pixel
-      // corresponds to 1 / this.scale PDF user-space points. Origin matches:
-      // both PDF.js viewport and the Go renderer treat top-left as (0, 0).
-      payload = {
-        rect_pts: { x: rect.x / scale, y: rect.y / scale, w: rect.w / scale, h: rect.h / scale }
-      }
-    } else {
-      // Browser-side fallback: render the page at high DPI offscreen, crop,
-      // ship the JPEG bitmap directly. Keeps the user productive while the
-      // PDF is still uploading to the server.
-      try {
-        payload = { crop_data: await this.highDpiCropDataUrl(rect, page, scale) }
-      } catch (err) {
-        console.error("High-DPI browser crop failed:", err)
-      }
-    }
+  // "Recognize page": every free region of the current page, in Mistral's
+  // reading order (region index). Submitted one after another so the
+  // fragments land in the buffer in that order; the server recognizes them
+  // in parallel. The page is rendered once for all browser-side crops.
+  async recognizePage() {
+    if (this.recognizingPage) return
+    const page = this.currentPage
+    const indices = this.currentRegions().map((_, index) => index).filter((index) => this.isRegionFree(index, page))
+    if (indices.length === 0) return
 
-    const ok = payload && await this.submitOcr({ page_number: page, region_index: index, ...payload })
-    if (!ok) {
-      this.bufferedRegions.delete(key)
-      this.redrawOverlay()
+    this.recognizingPage = true
+    this.updateRecognizePageButton()
+    let pageCanvas = null
+    const renderPage = () => (pageCanvas ??= this.renderHighDpiPage(page))
+    try {
+      for (const index of indices) {
+        // Clicked meanwhile, or deleted in another tab.
+        if (this.isRegionFree(index, page)) await this.recognizeRegion(page, index, renderPage)
+      }
+    } finally {
+      this.recognizingPage = false
+      this.updateRecognizePageButton()
     }
   }
 
-  // Render the current page in an offscreen canvas at scale 3 (~288 DPI),
-  // crop the user's selection, and return a JPEG data URL capped at
-  // ~2000 px on the long side (matches Claude Vision's sweet spot).
-  async highDpiCropDataUrl(rect, pageNumber, displayScale) {
-    const HIGH_SCALE = 3.0
+  updateRecognizePageButton() {
+    if (!this.hasRecognizePageBtnTarget) return
+    const anyFree = this.currentRegions().some((_, index) => this.isRegionFree(index))
+    this.recognizePageBtnTarget.disabled = this.recognizingPage || !anyFree
+  }
+
+  // Sends one region to OCR; its text is appended to the buffer.
+  // renderPage returns a promise of the page rendered at HIGH_DPI_SCALE
+  // (shared across a whole-page run).
+  async recognizeRegion(pageNumber, index, renderPage = () => this.renderHighDpiPage(pageNumber)) {
+    const region = this.regionsByPage.get(pageNumber)?.[index]
+    if (!region) return
+    const key = this.regionKey(pageNumber, index)
+
+    // Optimistic: block a second click right away; the server dedupes too.
+    this.bufferedRegions.set(key, "pending")
+    if (pageNumber === this.currentPage) this.redrawOverlay()
+
+    let payload
+    try {
+      const rectPts = await this.regionRectPts(pageNumber, region)
+      if (this.serverHasPdf) {
+        // Server-side path: send the rect in PDF points; the Go renderer
+        // crops at 300 DPI. Both pdf.js viewports and the Go renderer use a
+        // top-left origin.
+        payload = { rect_pts: rectPts }
+      } else {
+        // Browser-side fallback: crop a high-DPI render of the page and ship
+        // the JPEG directly. Keeps the user productive while the PDF is
+        // still uploading to the server.
+        payload = { crop_data: this.cropToDataUrl(await renderPage(), rectPts) }
+      }
+    } catch (err) {
+      console.error(`Preparing region ${key} for OCR failed:`, err)
+    }
+
+    const ok = payload && await this.submitOcr({ page_number: pageNumber, region_index: index, ...payload })
+    if (!ok) {
+      this.bufferedRegions.delete(key)
+      if (pageNumber === this.currentPage) this.redrawOverlay()
+    }
+  }
+
+  // Normalized region -> PDF points (scale-1 viewport), padded a little so
+  // tight Mistral boxes don't clip ascenders/descenders.
+  async regionRectPts(pageNumber, region) {
+    const page = await this.pdfDoc.getPage(pageNumber)
+    const { width, height } = page.getViewport({ scale: 1 })
+    const pad = REGION_PADDING_PTS
+    const x = Math.max(0, region.x * width - pad)
+    const y = Math.max(0, region.y * height - pad)
+    const right = Math.min(width, (region.x + region.w) * width + pad)
+    const bottom = Math.min(height, (region.y + region.h) * height + pad)
+    return { x, y, w: right - x, h: bottom - y }
+  }
+
+  // Render a page in an offscreen canvas at scale 3 (~216 DPI).
+  async renderHighDpiPage(pageNumber) {
+    const page = await this.pdfDoc.getPage(pageNumber)
+    const viewport = page.getViewport({ scale: HIGH_DPI_SCALE })
+    const canvas = document.createElement("canvas")
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise
+    return canvas
+  }
+
+  // Crop a rect (PDF points) out of a high-DPI page render and return a JPEG
+  // data URL capped at ~2000 px on the long side (matches Claude Vision's
+  // sweet spot).
+  cropToDataUrl(pageCanvas, rectPts) {
     const MAX_LONG_SIDE = 2000
     const JPEG_QUALITY = 0.92
 
-    const page = await this.pdfDoc.getPage(pageNumber)
-    const viewport = page.getViewport({ scale: HIGH_SCALE })
-
-    const fullCanvas = document.createElement("canvas")
-    fullCanvas.width = viewport.width
-    fullCanvas.height = viewport.height
-    await page.render({ canvasContext: fullCanvas.getContext("2d"), viewport }).promise
-
-    const ratio = HIGH_SCALE / displayScale
-    const sx = Math.round(rect.x * ratio)
-    const sy = Math.round(rect.y * ratio)
-    const sw = Math.round(rect.w * ratio)
-    const sh = Math.round(rect.h * ratio)
+    const sx = Math.round(rectPts.x * HIGH_DPI_SCALE)
+    const sy = Math.round(rectPts.y * HIGH_DPI_SCALE)
+    const sw = Math.round(rectPts.w * HIGH_DPI_SCALE)
+    const sh = Math.round(rectPts.h * HIGH_DPI_SCALE)
 
     let outW = sw
     let outH = sh
@@ -871,7 +919,7 @@ export default class extends Controller {
     const cropCanvas = document.createElement("canvas")
     cropCanvas.width = outW
     cropCanvas.height = outH
-    cropCanvas.getContext("2d").drawImage(fullCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
+    cropCanvas.getContext("2d").drawImage(pageCanvas, sx, sy, sw, sh, 0, 0, outW, outH)
     return cropCanvas.toDataURL("image/jpeg", JPEG_QUALITY)
   }
 
@@ -879,6 +927,7 @@ export default class extends Controller {
   // page: regions already in the buffer are tinted green (dashed while being
   // recognized), the hovered free one is emphasized with resize handles.
   redrawOverlay() {
+    this.updateRecognizePageButton()
     const overlay = this.overlayCanvasTarget
     const ctx = overlay.getContext("2d")
     ctx.clearRect(0, 0, overlay.width, overlay.height)
