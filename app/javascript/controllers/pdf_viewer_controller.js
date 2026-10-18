@@ -21,6 +21,12 @@ const EDGE_GRAB_PX = 6
 const DRAG_THRESHOLD_PX = 4
 const MIN_REGION_PX = 12
 const HANDLE_PX = 6
+// Round delete button (✕) just outside the hovered region's top-right
+// corner; the hover sticks while the mouse is this close to the region so
+// the button can be reached.
+const DELETE_BTN_RADIUS_PX = 8
+const DELETE_BTN_OFFSET_PX = 12
+const HOVER_KEEP_PX = 24
 const RESIZE_CURSORS = {
   n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize",
   ne: "nesw-resize", sw: "nesw-resize", nw: "nwse-resize", se: "nwse-resize"
@@ -110,6 +116,7 @@ export default class extends Controller {
   // A region can be clicked, moved and resized unless its text is already in
   // the buffer; a failed recognition can be fixed and retried.
   isRegionFree(index) {
+    if (this.currentRegions()[index]?.deleted) return false
     const status = this.bufferedRegions.get(this.regionKey(this.currentPage, index))
     return status === undefined || status === "failed"
   }
@@ -434,7 +441,15 @@ export default class extends Controller {
   // is "", "n", "se", ... ("" = inside: click or move). Edge zones win over
   // insides so a nested box's border stays grabbable; ties go to the
   // smallest box.
+  // The hovered region's delete button wins over everything ({ remove: true }).
   regionGrabAt(pos) {
+    if (this.hoverRegion !== null && this.isRegionFree(this.hoverRegion)) {
+      const c = this.deleteButtonCenter(this.regionToCanvasRect(this.currentRegions()[this.hoverRegion]))
+      if (Math.hypot(pos.x - c.x, pos.y - c.y) <= DELETE_BTN_RADIUS_PX + 2) {
+        return { index: this.hoverRegion, edges: "", remove: true }
+      }
+    }
+
     const t = EDGE_GRAB_PX
     let best = null
     this.currentRegions().forEach((region, index) => {
@@ -461,10 +476,26 @@ export default class extends Controller {
     return best && { index: best.index, edges: best.edges }
   }
 
+  deleteButtonCenter(r) {
+    const overlay = this.overlayCanvasTarget
+    const margin = DELETE_BTN_RADIUS_PX + 1
+    return {
+      x: Math.min(r.x + r.w + DELETE_BTN_OFFSET_PX, overlay.width - margin),
+      y: Math.max(r.y - DELETE_BTN_OFFSET_PX, margin)
+    }
+  }
+
   updateHover(e) {
     if (this.drag) return
-    const grab = this.regionGrabAt(this.getCanvasPos(e))
+    const pos = this.getCanvasPos(e)
+    const grab = this.regionGrabAt(pos)
     this.overlayCanvasTarget.style.cursor = grab ? (RESIZE_CURSORS[grab.edges] || "pointer") : ""
+    if (!grab && this.hoverRegion !== null && this.isRegionFree(this.hoverRegion)) {
+      // Heading for the delete button outside the box: keep the hover.
+      const r = this.regionToCanvasRect(this.currentRegions()[this.hoverRegion])
+      const k = HOVER_KEEP_PX
+      if (pos.x >= r.x - k && pos.x <= r.x + r.w + k && pos.y >= r.y - k && pos.y <= r.y + r.h + k) return
+    }
     const index = grab ? grab.index : null
     if (index === this.hoverRegion) return
     this.hoverRegion = index
@@ -486,7 +517,7 @@ export default class extends Controller {
     if (e.button !== 0 || this.drag) return
     const pos = this.getCanvasPos(e)
     const grab = this.regionGrabAt(pos)
-    if (!grab) return
+    if (!grab || grab.remove) return
     e.preventDefault() // no text selection while dragging
 
     this.drag = {
@@ -558,6 +589,32 @@ export default class extends Controller {
     if (!ok) {
       Object.assign(region, drag.original)
       if (drag.page === this.currentPage) this.redrawOverlay()
+    }
+  }
+
+  // Optimistic soft delete (the entry stays, marked deleted, so the other
+  // regions keep their indices); restored if the server refuses.
+  async deleteRegion(pageNumber, index) {
+    const region = this.regionsByPage.get(pageNumber)?.[index]
+    if (!region || region.deleted) return
+    region.deleted = true
+    this.hoverRegion = null
+    this.overlayCanvasTarget.style.cursor = ""
+    this.redrawOverlay()
+
+    try {
+      const response = await fetch(`${this.regionsUrl(pageNumber)}/${index}`, {
+        method: "DELETE",
+        headers: {
+          "Accept": "application/json",
+          "X-CSRF-Token": document.querySelector("meta[name='csrf-token']")?.content
+        }
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    } catch (err) {
+      console.error(`Deleting text region ${pageNumber}:${index} failed:`, err)
+      delete region.deleted
+      if (pageNumber === this.currentPage) this.redrawOverlay()
     }
   }
 
@@ -705,7 +762,14 @@ export default class extends Controller {
   }
 
   handleKeydown(e) {
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    if (e.target.closest?.("input, textarea, select, [contenteditable]")) return
+    if ((e.key === "Delete" || e.key === "Backspace") && this.hoverRegion !== null && !this.drag) {
+      // Delete the free region under the mouse.
+      if (this.isRegionFree(this.hoverRegion)) {
+        e.preventDefault()
+        this.deleteRegion(this.currentPage, this.hoverRegion)
+      }
+    } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
       e.preventDefault()
       this.nextPage()
     } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
@@ -729,6 +793,10 @@ export default class extends Controller {
     if (e.button !== 0 || this.suppressClick) return
     const grab = this.regionGrabAt(this.getCanvasPos(e))
     if (!grab) return
+    if (grab.remove) {
+      this.deleteRegion(this.currentPage, grab.index)
+      return
+    }
     const index = grab.index
 
     const page = this.currentPage
@@ -816,6 +884,7 @@ export default class extends Controller {
     ctx.clearRect(0, 0, overlay.width, overlay.height)
 
     this.currentRegions().forEach((region, index) => {
+      if (region.deleted) return
       const r = this.regionToCanvasRect(region)
       const status = this.bufferedRegions.get(this.regionKey(this.currentPage, index))
 
@@ -845,8 +914,25 @@ export default class extends Controller {
         for (const [hx, hy] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
           ctx.fillRect(hx - HANDLE_PX / 2, hy - HANDLE_PX / 2, HANDLE_PX, HANDLE_PX)
         }
+        if (!this.drag) this.drawDeleteButton(ctx, this.deleteButtonCenter(r))
       }
     })
+  }
+
+  drawDeleteButton(ctx, c) {
+    const arm = DELETE_BTN_RADIUS_PX * 0.45
+    ctx.beginPath()
+    ctx.arc(c.x, c.y, DELETE_BTN_RADIUS_PX, 0, Math.PI * 2)
+    ctx.fillStyle = "rgba(196, 69, 60, 0.95)"
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(c.x - arm, c.y - arm)
+    ctx.lineTo(c.x + arm, c.y + arm)
+    ctx.moveTo(c.x + arm, c.y - arm)
+    ctx.lineTo(c.x - arm, c.y + arm)
+    ctx.strokeStyle = "#fff"
+    ctx.lineWidth = 1.5
+    ctx.stroke()
   }
 
   // === OCR submission via Turbo Stream ===

@@ -39,14 +39,15 @@ class PageLayout < ApplicationRecord
     { "x" => left.round(5), "y" => top.round(5), "w" => (right - left).round(5), "h" => (bottom - top).round(5) }
   end
 
-  # Moves/resizes one region (user edit). The row lock keeps concurrent
-  # edits of other regions on the same page from overwriting each other.
+  # User edits of one region. The row lock keeps concurrent edits of other
+  # regions on the same page from overwriting each other.
   def update_region!(index, rect)
-    with_lock do
-      updated = regions.deep_dup
-      updated[index] = updated[index].merge(rect, "edited" => true)
-      update!(regions: updated)
-    end
+    change_region!(index, rect.merge("edited" => true))
+  end
+
+  # Soft delete: the entry stays so other regions keep their indices.
+  def delete_region!(index)
+    change_region!(index, "deleted" => true)
   end
 
   def as_json(*)
@@ -54,6 +55,14 @@ class PageLayout < ApplicationRecord
   end
 
   private
+
+  def change_region!(index, attrs)
+    with_lock do
+      updated = regions.deep_dup
+      updated[index] = updated[index].merge(attrs)
+      update!(regions: updated)
+    end
+  end
 
   def broadcast_result
     broadcast_append_to(

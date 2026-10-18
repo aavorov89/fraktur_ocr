@@ -30,6 +30,7 @@ Rails.application.routes.draw do
       get "pages/:page_number/text_regions", to: "text_regions#show", as: :page_text_regions
       post "pages/:page_number/text_regions", to: "text_regions#create"
       patch "pages/:page_number/text_regions/:index", to: "text_regions#update", as: :page_text_region
+      delete "pages/:page_number/text_regions/:index", to: "text_regions#destroy"
     end
   end
 
