@@ -3,7 +3,14 @@ require 'json'
 require 'base64'
 
 class OcrJob < ApplicationJob
-  MODEL = "claude-sonnet-4-20250514".freeze
+  MODEL = "claude-opus-5-5".freeze
+  # Thinking is always on for this model; effort sets how much. On real
+  # Fraktur crops `low` occasionally dropped archaic spellings ("beruffs" ->
+  # "berufs"); `medium` (the API default) did not and cost the same.
+  EFFORT = "medium".freeze
+  # Retries a safety-classifier decline on the model Anthropic recommends
+  # for that refusal category (server-side, Claude API only).
+  FALLBACK_BETA = "server-side-fallback-2026-07-01".freeze
 
   queue_as :default
 
@@ -45,6 +52,7 @@ class OcrJob < ApplicationJob
       image_size_bytes: image_bytes.bytesize
     ) do |payload|
       result = send_to_claude(api_key, base64_data, "image/jpeg")
+      payload[:model]      = result[:model] if result[:model]
       payload[:tokens_in]  = result[:tokens_in]
       payload[:tokens_out] = result[:tokens_out]
       payload[:status]     = result[:success] ? "success" : "error"
@@ -76,16 +84,20 @@ class OcrJob < ApplicationJob
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
-    http.read_timeout = 60
+    http.read_timeout = 120
 
     request = Net::HTTP::Post.new(uri)
     request["Content-Type"] = "application/json"
     request["x-api-key"] = api_key
     request["anthropic-version"] = "2023-06-01"
+    request["anthropic-beta"] = FALLBACK_BETA
 
     request.body = {
       model: MODEL,
-      max_tokens: 4096,
+      # Thinking counts toward max_tokens, so leave room beyond the text.
+      max_tokens: 16000,
+      output_config: { effort: EFFORT },
+      fallbacks: "default",
       messages: [
         {
           role: "user",
@@ -103,7 +115,7 @@ class OcrJob < ApplicationJob
               text: <<~PROMPT
                 You are tasked with recognizing and transcribing text from an 18th-century German book printed in Fraktur (German Gothic) typeface.
 
-                1. Carefully examine the image and transcribe all visible German text, converting Fraktur to modern Latin script.
+                1. Carefully examine the image and transcribe all visible German text, converting Fraktur to modern Latin script. Umlauts are printed as a small e above the vowel: write them as ä, ö, ü.
                 2. Preserve the original text exactly as it appears — including line breaks, hyphenation, punctuation, and any archaic spellings.
                 3. Do NOT clean up, modernize, or correct the text in any way. Transcribe faithfully.
                 4. If you encounter illegible or uncertain characters, represent them with [?].
@@ -119,7 +131,11 @@ class OcrJob < ApplicationJob
     response = http.request(request)
     body = JSON.parse(response.body)
 
-    if response.code.to_i == 200
+    if response.code.to_i == 200 && body["stop_reason"] == "refusal"
+      # Declined by a safety classifier (and by the fallback model, if any).
+      category = body.dig("stop_details", "category")
+      { success: false, error: "Claude declined to transcribe this region#{" (#{category})" if category}." }
+    elsif response.code.to_i == 200
       text = body["content"]
         &.select { |block| block["type"] == "text" }
         &.map { |block| block["text"] }
@@ -128,6 +144,8 @@ class OcrJob < ApplicationJob
       {
         success:    true,
         text:       text,
+        # The fallback model when the request was re-run after a refusal.
+        model:      body["model"],
         tokens_in:  body.dig("usage", "input_tokens"),
         tokens_out: body.dig("usage", "output_tokens")
       }
