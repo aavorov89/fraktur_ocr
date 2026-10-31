@@ -3,9 +3,12 @@ import * as pdfjsLib from "pdfjs-dist"
 import { consumePendingPdf, storePdf, getPdf } from "services/pdf_storage"
 import { ensurePdfOnServer } from "services/pdf_sync"
 
-// Set pdf.js worker URL
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.0.375/build/pdf.worker.min.mjs"
+// pdf.js assets on the CDN. Keep the version in sync with config/importmap.rb.
+const PDFJS_CDN = "https://cdn.jsdelivr.net/npm/pdfjs-dist@5.0.375"
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${PDFJS_CDN}/build/pdf.worker.min.mjs`
+// pdf.js 5 loads its JPEG 2000 (JPXDecode) decoder from here. Without it,
+// JPX-only scans (e.g. Internet Archive PDFs) render as blank pages.
+const PDFJS_WASM_URL = `${PDFJS_CDN}/wasm/`
 
 // Extra margin (PDF points) around a clicked Mistral region before cropping.
 const REGION_PADDING_PTS = 4
@@ -158,7 +161,7 @@ export default class extends Controller {
       // pdfjsLib transfers the buffer; clone before passing so we can also
       // upload it to the server without re-reading from IndexedDB.
       const forServer = arrayBuffer.slice(0)
-      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+      const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, wasmUrl: PDFJS_WASM_URL })
 
       this.pdfDoc = await loadingTask.promise
       this.totalPages = this.pdfDoc.numPages
