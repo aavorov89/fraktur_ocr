@@ -1,0 +1,36 @@
+<% fragments = document.buffered_ocr_requests.to_a %>
+<%# Regions already in the buffer, read by the PDF viewer (a second click is a no-op) %>
+<div id="buffered_regions" hidden
+     data-regions="<%= fragments.select(&:region_key).to_h { [_1.region_key, _1.status] }.to_json %>"></div>
+
+<div class="panel-actions">
+  <%= button_to t('buffer.clear'), document_buffer_path(document), method: :delete,
+        class: "panel-action-btn", disabled: fragments.empty?,
+        form: { data: { turbo_confirm: t('buffer.clear_confirm') } } %>
+</div>
+
+<% if fragments.empty? %>
+  <div class="ocr-state">
+    <span class="ocr-state-text"><%= t('ocr.select_region') %></span>
+  </div>
+<% else %>
+  <div class="ocr-content">
+    <% fragments.each do |fragment| %>
+      <div class="buffer-fragment" title="<%= t('ocr.page', number: fragment.page_number) %>">
+        <% if fragment.completed? %>
+          <div class="ocr-text"><%= fragment.recognized_text %></div>
+        <% elsif fragment.failed? %>
+          <div class="buffer-fragment-status ocr-error">
+            ⚠ <%= fragment.error_message || t('ocr.failed') %> — <%= t('ocr.click_to_retry') %>
+          </div>
+        <% else %>
+          <div class="buffer-fragment-status">
+            <span class="ocr-spinner-small"></span><%= t('ocr.recognizing_page', page: fragment.page_number) %>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+    <% text = Document.join_fragments(fragments) %>
+    <%= render "documents/copy_button", text: text, title: t('ocr.copy_text') if text.present? %>
+  </div>
+<% end %>

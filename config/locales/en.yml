@@ -37,7 +37,11 @@ en:
       source_pdf: "Source PDF"
       page_info: "– / –"
       load_different_pdf: "Load different PDF"
-      draw_hint: "Click and drag to select text"
+      draw_hint: "Click to recognize; drag to move; drag an edge to resize; ✕ or Delete to remove"
+      recognize_page: "Recognize page"
+      recognize_page_hint: "Recognize every free region on this page in reading order and append the text to the buffer"
+      detecting_regions: "Detecting text regions…"
+      regions_failed: "Text regions unavailable"
       pdf_missing: "PDF not available in this browser"
       pdf_missing_hint: "Select the PDF file again"
       reselect_pdf: "Select PDF"
@@ -45,25 +49,38 @@ en:
     panels:
       source_pdf: "Source PDF"
       recognized_text: "Recognized Text"
+      corrected_text: "Corrected Text"
       translation: "Translation"
 
   ocr:
-    select_region: "Select a region on the PDF to recognize text"
-    recognizing: "Recognizing Fraktur text…"
-    failed: "OCR failed. Try again."
+    select_region: "Click a highlighted region on the page — recognized text is appended here in order"
+    recognizing_page: "Recognizing… (page %{page})"
+    failed: "Recognition failed"
+    click_to_retry: "click the region again"
+    page: "page %{number}"
     copy_text: "Copy text"
-    correcting: "Correcting OCR errors…"
-    correction_failed: "Text correction failed — showing raw OCR"
+
+  buffer:
+    clear: "Clear"
+    clear_confirm: "Clear the recognized text, corrected text and translation?"
+
+  correction:
+    run: "Correct text"
+    running: "Correcting OCR errors…"
+    will_appear: "Press “Correct text” to fix the recognized text"
+    empty_buffer: "No recognized text yet — click a region on the page first"
+    failed: "Correction failed"
 
   translation:
-    will_appear: "Translation will appear here once text is recognized"
-    waiting: "Waiting for text recognition…"
-    ocr_failed: "OCR failed — no text to translate"
+    run: "Translate"
+    will_appear: "Press “Translate” to translate the text"
+    empty_source: "Nothing to translate — recognize some text first"
+    failed: "Translation failed"
     translate_to: "Translate to:"
     translating: "Translating with DeepL…"
     copy_translation: "Copy translation"
 
     languages:
-      russian: "Russian"
-      czech: "Czech"
-      english: "English"
+      ru: "Russian"
+      cs: "Czech"
+      en: "English"

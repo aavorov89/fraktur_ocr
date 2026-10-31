@@ -1,56 +1,53 @@
 require 'net/http'
 require 'json'
 
+# Translates the document's corrected text (the raw buffer if it was never
+# corrected) with DeepL into documents.translated_text. Triggered only by the
+# "Translate" button.
 class TranslationJob < ApplicationJob
   queue_as :default
 
   retry_on StandardError, wait: :polynomially_longer, attempts: 3 do |job, error|
-    BetterStackWarehouse::Pipeline.flush(
-      job.arguments.first,
-      status:        :failed,
-      failure_stage: :translation,
-      error_class:   error.class.name
-    )
+    document = Document.find_by(id: job.arguments.first)
+    document&.update!(translation_status: :failed, translation_error: error.message) if document&.translation_processing?
   end
 
-  def perform(ocr_request_id)
-    ocr_request = OcrRequest.find(ocr_request_id)
+  def perform(document_id)
+    document = Document.find(document_id)
+    return unless document.translation_processing?
 
-    # Use corrected_text if available, fall back to recognized_text
-    text_to_translate = ocr_request.corrected_text.presence || ocr_request.recognized_text
+    text_to_translate = document.corrected_text.presence || document.recognized_text
     if text_to_translate.blank?
-      BetterStackWarehouse::Pipeline.flush(ocr_request_id, status: :completed)
+      document.update!(translation_status: :failed, translation_error: "No text to translate")
       return
     end
 
     api_key = Rails.application.credentials.dig(:deepl, :api_key)
     api_host = Rails.application.credentials.dig(:deepl, :api_host)
-
-    raise "DeepL API credentials not configured. Run: rails credentials:edit" if api_key.blank? || api_host.blank?
+    if api_key.blank? || api_host.blank?
+      document.update!(translation_status: :failed, translation_error: "DeepL API credentials not configured")
+      return
+    end
 
     response = ActiveSupport::Notifications.instrument(
       "fraktur_ocr.translation",
-      ocr_request_id: ocr_request.id,
-      chars:          text_to_translate.length
+      document_id: document.id,
+      chars:       text_to_translate.length
     ) do |payload|
-      result = send_to_deepl(api_key, api_host, text_to_translate, ocr_request.target_language)
+      result = send_to_deepl(api_key, api_host, text_to_translate, document.target_language)
       payload[:status] = result[:success] ? "success" : "error"
       result
     end
 
-    if response[:success]
-      ocr_request.update!(translated_text: response[:text], translation_error: nil)
-    else
-      ocr_request.update!(translation_error: response[:error])
-    end
+    # Dropped if the buffer was cleared meanwhile.
+    document.reload
+    return unless document.translation_processing?
 
-    # Pipeline terminus on success. The retry_on block above handles the
-    # terminal-failure flush after all attempts are exhausted.
-    BetterStackWarehouse::Pipeline.flush(ocr_request.id, status: :completed)
-  rescue => e
-    ocr_request = OcrRequest.find_by(id: ocr_request_id)
-    ocr_request&.update(translation_error: e.message)
-    raise # Re-raise for retry mechanism
+    if response[:success]
+      document.update!(translated_text: response[:text], translation_status: :completed, translation_error: nil)
+    else
+      document.update!(translation_status: :failed, translation_error: response[:error])
+    end
   end
 
   private
@@ -60,7 +57,7 @@ class TranslationJob < ApplicationJob
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
-    http.read_timeout = 60
+    http.read_timeout = 120
 
     request = Net::HTTP::Post.new(uri)
     request["Content-Type"] = "application/json"

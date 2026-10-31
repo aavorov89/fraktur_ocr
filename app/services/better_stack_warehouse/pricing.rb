@@ -5,15 +5,17 @@ module BetterStackWarehouse
   # are also emitted so analytics can recompute against future rates if
   # needed.
   module Pricing
-    # Anthropic - Claude Sonnet 4 (claude-sonnet-4-20250514).
-    # Source: https://platform.claude.com/docs/en/docs/about-claude/pricing (2026-05-11).
-    CLAUDE_SONNET_4_INPUT_PER_MTOK  = 3.00
-    CLAUDE_SONNET_4_OUTPUT_PER_MTOK = 15.00
-
-    # OpenAI - GPT-4o.
-    # Source: https://openai.com/api/pricing/ (2026-05-11).
-    GPT_4O_INPUT_PER_MTOK  = 2.50
-    GPT_4O_OUTPUT_PER_MTOK = 10.00
+    # USD per million tokens, [input, output], keyed by the model id the API
+    # reports.
+    # Anthropic source: https://platform.claude.com/docs/en/docs/about-claude/pricing (2026-10-20).
+    # OpenAI source: https://openai.com/api/pricing/ (2026-10-20).
+    TOKEN_RATES_PER_MTOK = {
+      "claude-opus-5-5"   => [4.00, 20.00],
+      "claude-sonnet-5-5" => [2.00, 10.00],
+      "claude-haiku-5-5"  => [0.10, 0.50],
+      "gpt-5.2"           => [1.75, 14.00],
+      "gpt-4o"            => [2.50, 10.00]
+    }.freeze
 
     # DeepL Pro API - per character.
     # TODO(verify): the DeepL Help Center pricing page returned 403 from the
@@ -23,14 +25,13 @@ module BetterStackWarehouse
     # for this account before relying on translation_cost_usd for budgeting.
     DEEPL_PER_MCHAR = 25.00
 
-    def self.claude_sonnet_4(tokens_in:, tokens_out:)
-      ((tokens_in.to_i * CLAUDE_SONNET_4_INPUT_PER_MTOK) +
-       (tokens_out.to_i * CLAUDE_SONNET_4_OUTPUT_PER_MTOK)) / 1_000_000.0
-    end
+    # Cost of one request, or nil for a model without a known rate (so a new
+    # model never gets silently priced at an old model's rate).
+    def self.tokens(model, tokens_in:, tokens_out:)
+      rate_in, rate_out = TOKEN_RATES_PER_MTOK[model.to_s]
+      return nil unless rate_in
 
-    def self.gpt_4o(tokens_in:, tokens_out:)
-      ((tokens_in.to_i * GPT_4O_INPUT_PER_MTOK) +
-       (tokens_out.to_i * GPT_4O_OUTPUT_PER_MTOK)) / 1_000_000.0
+      ((tokens_in.to_i * rate_in) + (tokens_out.to_i * rate_out)) / 1_000_000.0
     end
 
     def self.deepl(chars:)

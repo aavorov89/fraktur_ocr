@@ -8,8 +8,11 @@ module BetterStackWarehouse
     EVENT_PREFIX = "fraktur_ocr."
 
     def self.attach!
+      # Resolve the module on every event: in development a code reload
+      # replaces it, and the stale copy captured here can no longer see
+      # Pipeline / Pricing.
       ActiveSupport::Notifications.subscribe(/^#{Regexp.escape(EVENT_PREFIX)}/) do |name, started, finished, _id, payload|
-        handle(name, started, finished, payload)
+        ::BetterStackWarehouse::PipelineSubscriber.handle(name, started, finished, payload)
       end
     end
 
@@ -39,7 +42,7 @@ module BetterStackWarehouse
           model:            payload[:model],
           tokens_in:        tokens_in,
           tokens_out:       tokens_out,
-          cost_usd:         tokens_in && tokens_out ? Pricing.claude_sonnet_4(tokens_in: tokens_in, tokens_out: tokens_out) : nil,
+          cost_usd:         tokens_in && tokens_out ? Pricing.tokens(payload[:model], tokens_in: tokens_in, tokens_out: tokens_out) : nil,
           image_size_bytes: payload[:image_size_bytes],
           status:           payload[:status]&.to_s
         )
@@ -52,7 +55,7 @@ module BetterStackWarehouse
           model:          payload[:model],
           tokens_in:      tokens_in,
           tokens_out:     tokens_out,
-          cost_usd:       tokens_in && tokens_out ? Pricing.gpt_4o(tokens_in: tokens_in, tokens_out: tokens_out) : nil,
+          cost_usd:       tokens_in && tokens_out ? Pricing.tokens(payload[:model], tokens_in: tokens_in, tokens_out: tokens_out) : nil,
           status:         payload[:status]&.to_s
         )
       when :translation

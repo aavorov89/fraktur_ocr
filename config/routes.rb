@@ -22,15 +22,25 @@ Rails.application.routes.draw do
       put :pdf, action: :upload_pdf, as: :upload_pdf
       match :pdf, action: :pdf_status, via: :head, as: :pdf_status
     end
-    resources :ocr_requests, only: [:create], module: :documents do
-      member do
-        patch :update_language
-      end
+    scope module: :documents do
+      resources :ocr_requests, only: [:create]
+      resource :buffer, only: [:destroy]
+      resource :correction, only: [:create]
+      resource :translation, only: [:create]
+      get "pages/:page_number/text_regions", to: "text_regions#show", as: :page_text_regions
+      post "pages/:page_number/text_regions", to: "text_regions#create"
+      patch "pages/:page_number/text_regions/:index", to: "text_regions#update", as: :page_text_region
+      delete "pages/:page_number/text_regions/:index", to: "text_regions#destroy"
     end
   end
 
   namespace :internal do
     resources :ocr_requests, only: [] do
+      member do
+        post :render_done
+      end
+    end
+    resources :page_layouts, only: [] do
       member do
         post :render_done
       end

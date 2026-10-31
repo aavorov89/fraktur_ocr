@@ -1,8 +1,9 @@
 module BetterStackWarehouse
   # Aggregates per-stage metrics in ocr_requests.metrics and emits exactly
   # one warehouse event per page when the pipeline reaches a terminal
-  # outcome (completed at the end of TranslationJob, or failed after a
-  # job's retry_on attempts are exhausted).
+  # outcome (completed at the end of OcrJob, or failed after OcrJob's
+  # retry_on attempts are exhausted). Correction and translation run over a
+  # whole document's buffer, so they no longer belong to one page's event.
   module Pipeline
     STAGES = %i[render ocr correction translation].freeze
 
@@ -27,8 +28,8 @@ module BetterStackWarehouse
     end
 
     # Build and enqueue a single warehouse event. Called from:
-    #   - TranslationJob success path (status: :completed)
-    #   - the retry_on block on each job (status: :failed)
+    #   - OcrJob success path (status: :completed)
+    #   - OcrJob's retry_on block (status: :failed)
     def self.flush(ocr_request_id, status:, failure_stage: nil, error_class: nil)
       return unless ocr_request_id
       ocr_request = OcrRequest.find_by(id: ocr_request_id)

@@ -9,7 +9,6 @@ import (
 	"image/png"
 	"os"
 
-	"github.com/gen2brain/go-fitz"
 	"golang.org/x/image/draw"
 
 	"github.com/fraktur-ocr/services/render/internal/cache"
@@ -40,16 +39,15 @@ func PageBitmap(ctx context.Context, c *cache.Cache, pdfPath string, page int, o
 	}
 	key := cache.Key(pdfPath, st.ModTime().Unix(), page, opts.CanonicalDPI)
 
-	// page count requires opening the PDF; do it once up-front so both
-	// cache-hit and cache-miss paths can surface it.
-	pageCount, err := pdfPageCount(pdfPath)
-	if err != nil {
-		return nil, 0, false, err
-	}
-
 	if path, hit, err := c.Get(ctx, key); err != nil {
-		return nil, pageCount, false, err
+		return nil, 0, false, err
 	} else if hit {
+		// The page count still needs MuPDF; it is surfaced for analytics on
+		// both paths.
+		pageCount, _, err := runMuPDF(ctx, pdfPath, 0, opts.CanonicalDPI)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("count pages: %w", err)
+		}
 		img, err := readPNG(path)
 		if err != nil {
 			return nil, pageCount, false, fmt.Errorf("decode cached png: %w", err)
@@ -57,44 +55,22 @@ func PageBitmap(ctx context.Context, c *cache.Cache, pdfPath string, page int, o
 		return img, pageCount, true, nil
 	}
 
-	img, pngBytes, err := rasterize(pdfPath, page, opts.CanonicalDPI, pageCount)
+	if page < 1 {
+		return nil, 0, false, fmt.Errorf("page %d out of range", page)
+	}
+	// Rasterization runs in a child process; see process.go for why.
+	pageCount, pngBytes, err := runMuPDF(ctx, pdfPath, page, opts.CanonicalDPI)
 	if err != nil {
 		return nil, pageCount, false, err
+	}
+	img, err := png.Decode(bytes.NewReader(pngBytes))
+	if err != nil {
+		return nil, pageCount, false, fmt.Errorf("decode rendered png: %w", err)
 	}
 	if _, err := c.Put(ctx, key, pngBytes); err != nil {
 		return nil, pageCount, false, err
 	}
 	return img, pageCount, false, nil
-}
-
-func pdfPageCount(pdfPath string) (int, error) {
-	doc, err := fitz.New(pdfPath)
-	if err != nil {
-		return 0, fmt.Errorf("open pdf: %w", err)
-	}
-	defer doc.Close()
-	return doc.NumPage(), nil
-}
-
-func rasterize(pdfPath string, page int, dpi float64, pageCount int) (image.Image, []byte, error) {
-	doc, err := fitz.New(pdfPath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("open pdf: %w", err)
-	}
-	defer doc.Close()
-	if page < 1 || page > pageCount {
-		return nil, nil, fmt.Errorf("page %d out of range (1..%d)", page, pageCount)
-	}
-	// go-fitz uses 0-indexed pages.
-	img, err := doc.ImageDPI(page-1, dpi)
-	if err != nil {
-		return nil, nil, fmt.Errorf("rasterize: %w", err)
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return nil, nil, fmt.Errorf("encode png: %w", err)
-	}
-	return img, buf.Bytes(), nil
 }
 
 func readPNG(path string) (image.Image, error) {
@@ -130,7 +106,18 @@ func CropAndEncode(pageImg image.Image, rectPts RectPts, opts Options) ([]byte, 
 	cropped := image.NewRGBA(image.Rect(0, 0, cropRect.Dx(), cropRect.Dy()))
 	draw.Copy(cropped, image.Point{}, pageImg, cropRect, draw.Src, nil)
 
-	final := downsample(cropped, opts.MaxLongSidePx)
+	return downsampleAndEncode(cropped, opts)
+}
+
+// EncodePage downsamples a whole page bitmap so the long side is ≤
+// opts.MaxLongSidePx and JPEG-encodes it. Used for text-region detection,
+// which needs the full page rather than a crop.
+func EncodePage(pageImg image.Image, opts Options) ([]byte, image.Rectangle, error) {
+	return downsampleAndEncode(pageImg, opts)
+}
+
+func downsampleAndEncode(src image.Image, opts Options) ([]byte, image.Rectangle, error) {
+	final := downsample(src, opts.MaxLongSidePx)
 
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, final, &jpeg.Options{Quality: opts.JPEGQuality}); err != nil {

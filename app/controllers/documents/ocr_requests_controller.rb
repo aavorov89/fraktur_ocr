@@ -1,4 +1,7 @@
 module Documents
+  # A click on a detected text region: recognize it (no correction) and
+  # append the text to the document's buffer. A region already in the buffer
+  # is a no-op, except that a failed one is recognized again.
   class OcrRequestsController < ApplicationController
     def create
       @document = Document.find(params[:document_id])
@@ -6,11 +9,12 @@ module Documents
       attrs = ocr_request_attributes
       return head(:unprocessable_entity) if attrs.nil?
 
-      @ocr_request = @document.ocr_requests.new(attrs)
+      @ocr_request = @document.ocr_requests.buffered.find_or_initialize_by(attrs.slice(:page_number, :region_index))
+      return render_buffer if @ocr_request.persisted? && !@ocr_request.failed?
 
-      unless @ocr_request.save
-        return head(:unprocessable_entity)
-      end
+      # A retried region keeps its place in the buffer.
+      @ocr_request.assign_attributes(attrs.merge(status: :pending, error_message: nil, metrics: {}))
+      return head(:unprocessable_entity) unless @ocr_request.save
 
       if (data_url = params.dig(:ocr_request, :crop_data)).present?
         # Browser-side path: the JS controller already rendered the page at
@@ -25,46 +29,28 @@ module Documents
         RenderEnqueuer.enqueue(@ocr_request)
       end
 
-      respond_to do |format|
-        format.turbo_stream do
-          render turbo_stream: [
-            turbo_stream.update("ocr_panel",
-              partial: "documents/ocr_panel",
-              locals: { ocr_request: @ocr_request }),
-            turbo_stream.update("translation_panel",
-              partial: "documents/translation_panel",
-              locals: { ocr_request: @ocr_request })
-          ]
-        end
-      end
-    end
-
-    def update_language
-      @document = Document.find(params[:document_id])
-      @ocr_request = @document.ocr_requests.find(params[:id])
-
-      if @ocr_request.update(target_language: params[:target_language])
-        # Clear previous translation and re-trigger translation job
-        @ocr_request.update(translated_text: nil, translation_error: nil)
-        TranslationJob.perform_later(@ocr_request.id)
-
-        respond_to do |format|
-          format.turbo_stream do
-            render turbo_stream: turbo_stream.update("translation_panel",
-              partial: "documents/translation_panel",
-              locals: { ocr_request: @ocr_request })
-          end
-        end
-      else
-        head :unprocessable_entity
-      end
+      render_buffer
+    rescue ActiveRecord::RecordNotUnique
+      # Double click raced past the lookup; the first request owns the region.
+      render_buffer
     end
 
     private
 
+    def render_buffer
+      respond_to do |format|
+        format.turbo_stream do
+          render turbo_stream: turbo_stream.update("recognized_panel",
+            partial: "documents/recognized_panel", locals: { document: @document })
+        end
+      end
+    end
+
     def ocr_request_attributes
-      raw = params.require(:ocr_request).permit(:page_number, :target_language, rect_pts: [:x, :y, :w, :h])
-      base = { page_number: raw[:page_number], target_language: raw[:target_language] }.compact
+      raw = params.require(:ocr_request).permit(:page_number, :region_index, rect_pts: [:x, :y, :w, :h])
+      return nil if raw[:page_number].blank? || raw[:region_index].blank?
+
+      base = { page_number: raw[:page_number].to_i, region_index: raw[:region_index].to_i }
 
       rect = raw[:rect_pts]
       if rect.is_a?(ActionController::Parameters) || rect.is_a?(Hash)
@@ -72,7 +58,7 @@ module Documents
       elsif params.dig(:ocr_request, :crop_data).present?
         # crop_data path: rect columns stay null, the JPEG already encodes the
         # cropped region.
-        base
+        base.merge(rect_x: nil, rect_y: nil, rect_w: nil, rect_h: nil)
       else
         nil
       end

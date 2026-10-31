@@ -29,7 +29,6 @@ class DocumentsController < ApplicationController
 
   def show
     @document = Document.find(params[:id])
-    @ocr_request = @document.ocr_requests.order(created_at: :desc).first
   end
 
   def upload_pdf
