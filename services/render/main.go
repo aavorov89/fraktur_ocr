@@ -22,6 +22,10 @@ import (
 )
 
 func main() {
+	// Must run before anything else: the service re-executes itself as a
+	// one-shot MuPDF child for every rasterization (see internal/render).
+	render.MaybeRunChild()
+
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err.Error())
 		os.Exit(1)
